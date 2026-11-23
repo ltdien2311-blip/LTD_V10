@@ -1829,19 +1829,6 @@
                     questions: []
                 });
             }
-            if (global.LTDLibBridge && typeof global.LTDLibBridge.upsertTopic === 'function') {
-                createdTopics.forEach(function (tObj) { global.LTDLibBridge.upsertTopic(tObj); });
-            } else {
-                var list = getLibTopicsList();
-                createdTopics.forEach(function (tObj) {
-                    var idx = list.findIndex(function (t) { return t && t.id === tObj.id; });
-                    if (idx >= 0) list[idx] = tObj;
-                    else list.push(tObj);
-                });
-                if (!Array.isArray(global.savedTopics)) global.savedTopics = list;
-                try { localStorage.setItem('matrix_quiz_topics_v2', JSON.stringify(list)); } catch (e) {}
-                if (typeof global.renderLibraryList === 'function') try { global.renderLibraryList(); } catch (e) {}
-            }
             function compressSlideWebp(dataUrl) {
                 if (!dataUrl || typeof Image === 'undefined' || typeof document === 'undefined') return Promise.resolve(dataUrl || '');
                 if (/^data:image\/webp/i.test(dataUrl)) return Promise.resolve(dataUrl);
@@ -1869,49 +1856,52 @@
                     } catch (e) { resolve(dataUrl); }
                 });
             }
+            setStatus('⏳ Đang đóng gói ảnh WebP 0.90 & lưu vào Thư viện...');
+            var packJobs = [];
             var gvTopicRef = createdTopics.find(function (t) { return t && t.minMapRole === 'gv'; });
             if (gvTopicRef && gvTopicRef.questions.some(function (q) { return q && q.obsSlideKey && !q.obsSlideData; })) {
-                Promise.all(gvTopicRef.questions.map(function (q) {
+                packJobs.push(Promise.all(gvTopicRef.questions.map(function (q) {
                     var p = q.obsSlideData ? Promise.resolve(q.obsSlideData) : getSlideDataUrl(q.obsSlideKey);
                     return p.then(compressSlideWebp);
                 })).then(function (urls) {
-                    var changed = false;
                     urls.forEach(function (u, idx) {
-                        if (u && !gvTopicRef.questions[idx].obsSlideData) {
-                            gvTopicRef.questions[idx].obsSlideData = u;
-                            changed = true;
-                        }
+                        if (u && !gvTopicRef.questions[idx].obsSlideData) gvTopicRef.questions[idx].obsSlideData = u;
                     });
-                    if (changed && global.LTDLibBridge && typeof global.LTDLibBridge.upsertTopic === 'function') {
-                        global.LTDLibBridge.upsertTopic(gvTopicRef);
-                    }
-                });
+                }));
             }
             var hsTopicRef = createdTopics.find(function (t) { return t && t.minMapRole === 'hs'; });
             if (hsTopicRef && hsTopicRef.hsSlideKeys.some(function (k) { return !k.dataUrl; })) {
-                Promise.all(hsTopicRef.hsSlideKeys.map(function (k) {
+                packJobs.push(Promise.all(hsTopicRef.hsSlideKeys.map(function (k) {
                     var p = k.dataUrl ? Promise.resolve(k.dataUrl) : getSlideDataUrl(k.id);
                     return p.then(compressSlideWebp);
                 })).then(function (urls) {
-                    var changed = false;
                     urls.forEach(function (u, idx) {
-                        if (u && !hsTopicRef.hsSlideKeys[idx].dataUrl) {
-                            hsTopicRef.hsSlideKeys[idx].dataUrl = u;
-                            changed = true;
-                        }
+                        if (u && !hsTopicRef.hsSlideKeys[idx].dataUrl) hsTopicRef.hsSlideKeys[idx].dataUrl = u;
                     });
-                    if (changed && global.LTDLibBridge && typeof global.LTDLibBridge.upsertTopic === 'function') {
-                        global.LTDLibBridge.upsertTopic(hsTopicRef);
-                    }
-                });
+                }));
             }
-            if (global.GasBridge && typeof global.GasBridge.enqueueTopicSync === 'function') {
-                createdTopics.forEach(function (tObj) { if (tObj && tObj.id) global.GasBridge.enqueueTopicSync(tObj.id); });
-            }
-            closePushDialog();
-            renderDeckDrawer();
-            showToast('Đã đẩy ' + createdTopics.length + ' bản "' + customName + '" (' + deck.slides.length + ' Slide GV · ' + deck.hsSlides.length + ' Phiếu học tập) vào Thư viện!', 'success');
-            setStatus('✓ Đã đẩy ' + createdTopics.length + ' bản vào Thư viện: Hóa học • ' + grade);
+            Promise.all(packJobs).then(function () {
+                if (global.LTDLibBridge && typeof global.LTDLibBridge.upsertTopic === 'function') {
+                    createdTopics.forEach(function (tObj) { global.LTDLibBridge.upsertTopic(tObj); });
+                } else {
+                    var list = getLibTopicsList();
+                    createdTopics.forEach(function (tObj) {
+                        var idx = list.findIndex(function (t) { return t && t.id === tObj.id; });
+                        if (idx >= 0) list[idx] = tObj;
+                        else list.push(tObj);
+                    });
+                    if (!Array.isArray(global.savedTopics)) global.savedTopics = list;
+                    try { localStorage.setItem('matrix_quiz_topics_v2', JSON.stringify(list)); } catch (e) {}
+                    if (typeof global.renderLibraryList === 'function') try { global.renderLibraryList(); } catch (e) {}
+                }
+                if (global.GasBridge && typeof global.GasBridge.enqueueTopicSync === 'function') {
+                    createdTopics.forEach(function (tObj) { if (tObj && tObj.id) global.GasBridge.enqueueTopicSync(tObj.id); });
+                }
+                closePushDialog();
+                renderDeckDrawer();
+                showToast('Đã đẩy ' + createdTopics.length + ' bản "' + customName + '" (' + deck.slides.length + ' Slide GV · ' + deck.hsSlides.length + ' Phiếu học tập) vào Thư viện!', 'success');
+                setStatus('✓ Đã đẩy ' + createdTopics.length + ' bản vào Thư viện: Hóa học • ' + grade);
+            });
             return createdTopics;
         }
         global.LTDMinMapObsStore = {

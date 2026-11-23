@@ -12132,6 +12132,7 @@ const COLS = 24;
                 if (!ex || (f.updatedAt || 0) >= (ex.updatedAt || 0)) map.set(f.id, f);
             });
             libraryFolders = Array.from(map.values()).filter(f => !deletedFolderIds.includes(f.id));
+            dedupeLibraryFolders(false);
         }
 
         function saveFolders() {
@@ -12139,6 +12140,66 @@ const COLS = 24;
                 localStorage.setItem('matrix_library_folders_v1', JSON.stringify(libraryFolders));
                 localStorage.setItem('matrix_deleted_folder_ids_v1', JSON.stringify(deletedFolderIds));
             } catch (e) {}
+        }
+
+        // [MT-19A] Chong nhan doi & Tu dong gop thu muc trung ten cung cap/cung mon
+        function dedupeLibraryFolders(persistStorage) {
+            if (!Array.isArray(libraryFolders) || libraryFolders.length < 2) return 0;
+            const normName = (s) => String(s || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+            const normSubj = (s) => String(s || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+            let totalMerged = 0;
+            for (let pass = 0; pass < 8; pass++) {
+                const groups = new Map();
+                libraryFolders.forEach(f => {
+                    if (!f || !f.id) return;
+                    const pid = String(f.parentId || '');
+                    if (pid.toLowerCase() === '__subjmeta' || pid.toLowerCase() === '__subj_meta__') return;
+                    const key = normSubj(f.subject || '') + '|' + pid + '|' + normName(f.name || '');
+                    if (!groups.has(key)) groups.set(key, []);
+                    groups.get(key).push(f);
+                });
+                const idMap = {};
+                let passMerged = 0;
+                groups.forEach(arr => {
+                    if (arr.length < 2) return;
+                    const scoreFolder = (f) => {
+                        const tCnt = Array.isArray(savedTopics) ? savedTopics.filter(t => t && t.folderId === f.id).length : 0;
+                        const cCnt = libraryFolders.filter(c => c && c.parentId === f.id).length;
+                        return (tCnt * 1000) + (cCnt * 100) + (Number(f.updatedAt || 0) > 0 ? 1 : 0);
+                    };
+                    arr.sort((a, b) => {
+                        const sa = scoreFolder(a), sb = scoreFolder(b);
+                        if (sb !== sa) return sb - sa;
+                        return Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
+                    });
+                    const keep = arr[0];
+                    for (let i = 1; i < arr.length; i++) {
+                        idMap[arr[i].id] = keep.id;
+                        if (Array.isArray(deletedFolderIds) && !deletedFolderIds.includes(arr[i].id)) {
+                            deletedFolderIds.push(arr[i].id);
+                        }
+                        passMerged++;
+                    }
+                });
+                if (!passMerged) break;
+                totalMerged += passMerged;
+                if (Array.isArray(savedTopics)) {
+                    savedTopics.forEach(t => {
+                        if (t && t.folderId && idMap[t.folderId]) t.folderId = idMap[t.folderId];
+                    });
+                }
+                libraryFolders = libraryFolders.filter(f => f && !idMap[f.id]);
+                libraryFolders.forEach(f => {
+                    if (f && f.parentId && idMap[f.parentId]) f.parentId = idMap[f.parentId];
+                });
+            }
+            if (totalMerged > 0) {
+                saveFolders();
+                if (persistStorage !== false) {
+                    try { saveToStorage(); } catch (e) {}
+                }
+            }
+            return totalMerged;
         }
 
         // [CODE76] Thứ tự các môn học được lưu thành bản ghi đặc biệt (parentId = __subjmeta) trong danh sách thư mục
@@ -14047,6 +14108,7 @@ const COLS = 24;
                 }
             },
             getFolders: () => Array.isArray(libraryFolders) ? libraryFolders : [],
+            dedupeFolders: () => dedupeLibraryFolders(true),
             getTopics: () => Array.isArray(savedTopics) ? savedTopics : [],
             getClasses: () => {
                 try { if (typeof cmLoad === 'function') cmLoad(); } catch (e) {}

@@ -3802,11 +3802,27 @@
                 return { ok: false, error: (res && res.error) || 'Chưa có Mục lục LIB_INDEX_V2 trên Drive.' };
             }
             var idxData = res.data;
+            var folderIdRemap = {};
             if (Array.isArray(idxData.folders) && idxData.folders.length) {
                 var curFolders = getGlobalVarSafe('libraryFolders', null);
+                var normF = function (s) { return String(s || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim(); };
                 if (Array.isArray(curFolders)) {
                     idxData.folders.forEach(function (f) {
-                        if (f && f.id && !curFolders.some(function (x) { return x && x.id === f.id; })) curFolders.push(f);
+                        if (!f || !f.id) return;
+                        if (curFolders.some(function (x) { return x && x.id === f.id; })) return;
+                        var pid = f.parentId && folderIdRemap[f.parentId] ? folderIdRemap[f.parentId] : (f.parentId || '');
+                        var dup = curFolders.find(function (x) {
+                            if (!x || !x.id) return false;
+                            return normF(x.subject || '') === normF(f.subject || '') &&
+                                String(x.parentId || '') === String(pid) &&
+                                normF(x.name || '') === normF(f.name || '');
+                        });
+                        if (dup) {
+                            folderIdRemap[f.id] = dup.id;
+                        } else {
+                            if (f.parentId && folderIdRemap[f.parentId]) f.parentId = folderIdRemap[f.parentId];
+                            curFolders.push(f);
+                        }
                     });
                     try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(curFolders)); } catch (e) { }
                 } else {
@@ -3845,6 +3861,7 @@
                         return Promise.all(slice.map(function (rt) { return loadTopicFromDrive(rt.id); })).then(function (tResList) {
                             tResList.forEach(function (tr) {
                                 if (tr && tr.ok && tr.data && tr.data.id) {
+                                    if (tr.data.folderId && folderIdRemap[tr.data.folderId]) tr.data.folderId = folderIdRemap[tr.data.folderId];
                                     upsertLocalTopicSafe(tr.data);
                                     pulledCount++;
                                 }
@@ -3859,6 +3876,7 @@
             }
 
             return chain.then(function () {
+                try { if (typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.dedupeFolders === 'function') window.LTDLibBridge.dedupeFolders(); } catch (e) { }
                 try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) { }
                 try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) { }
                 return { ok: true, pulledCount: pulledCount, totalInIndex: remoteList.length };
