@@ -496,8 +496,8 @@ window.SAKB = {
                     <div id="login-hs-menu" class="hidden grid grid-cols-1 gap-3">
                         <p class="text-center text-xs font-black text-slate-500">Em đã có tài khoản chưa?</p>
                         <button type="button" id="hs-btn-login" onclick="hsAuthShow('login')" class="w-full py-3.5 rounded-2xl font-black text-white bg-gradient-to-r from-indigo-600 via-blue-600 to-sky-500 hover:from-indigo-700 hover:to-blue-700 shadow-lg transition-all active:scale-95 text-base uppercase tracking-wider">🔑 ĐĂNG NHẬP</button>
-                        <button type="button" id="hs-btn-register" onclick="hsAuthShow('register')" class="w-full py-3.5 rounded-2xl font-black text-white bg-gradient-to-r from-emerald-600 to-green-500 hover:from-emerald-700 hover:to-green-600 shadow-lg transition-all active:scale-95 text-base uppercase tracking-wider">📝 ĐĂNG KÍ</button>
-                        <p class="text-center text-[11px] font-bold text-slate-500 leading-snug">Lần đầu vào học: bấm <b>ĐĂNG KÍ</b> để tạo tài khoản. Những lần sau chỉ cần <b>ĐĂNG NHẬP</b>.</p>
+                        <button type="button" id="hs-btn-register" onclick="hsAuthShow('login')" class="hidden w-full py-3.5 rounded-2xl font-black text-white bg-gradient-to-r from-emerald-600 to-green-500 shadow-lg text-base uppercase tracking-wider" aria-hidden="true">📝 ĐĂNG KÍ</button>
+                        <p class="text-center text-[11px] font-bold text-slate-500 leading-snug">Tài khoản do <b>Giáo viên</b> cấp. Bấm <b>ĐĂNG NHẬP</b> để vào học.</p>
                     </div>
 
                     <div id="login-user-group" class="hidden">
@@ -1158,7 +1158,7 @@ window.SAKB = {
         </div>
     </div>
 
-    <script src="js/storage-sync.js?v=mt19b"></script>
+    <script src="js/storage-sync.js?v=mt20"></script>
     
     
     

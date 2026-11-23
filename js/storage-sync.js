@@ -2497,6 +2497,7 @@
                 '<button type="button" onclick="CloudSync.restoreBankGas()" style="' + btn('#4f46e5') + '">📥 Khôi phục Ngân hàng đề</button>' +
                 '<button type="button" onclick="CloudSync.pushLibraryToDriveGas()" style="' + btn('linear-gradient(90deg,#0284c7,#2563eb)') + '">☁️ Đẩy Thư viện &amp; MinMap lên Drive</button>' +
                 '<button type="button" onclick="CloudSync.pullLibraryFromDriveGas()" style="' + btn('linear-gradient(90deg,#059669,#0d9488)') + '">⬇️ Kéo Thư viện &amp; MinMap từ Drive</button>' +
+                '<button type="button" onclick="window.HSAuth && window.HSAuth.openManager && window.HSAuth.openManager()" style="' + btn('linear-gradient(90deg,#7c3aed,#4f46e5)') + '">👥 Quản lý Tài khoản HS</button>' +
                 '</div>' : '') +
             (gCfg && window.GasBridge && window.GasBridge.getQueueCount() > 0 ? '<div style="margin-top:8px;font-size:12.5px;font-weight:800;color:#b45309">⏳ Đang có ' + window.GasBridge.getQueueCount() + ' bài nộp chờ gửi bù lên Sheets.</div>' : '') +
             '<div id="gas-test-status" style="margin-top:10px"></div>' +
@@ -3966,27 +3967,25 @@
 
 // === [hs-auth-module] ===
 /* ======================================================================
-   [CODE111] TÀI KHOẢN HỌC SINH: ĐĂNG KÍ / ĐĂNG NHẬP
-   - "Tôi là HS" -> 2 nút: ĐĂNG NHẬP | ĐĂNG KÍ.
-   - ĐĂNG KÍ: Họ và tên, Lớp, Tên đăng nhập (không được trùng), Mật khẩu.
-   - ĐĂNG NHẬP: Tên đăng nhập + Mật khẩu -> vào ứng dụng với quyền học sinh,
-     Họ tên + Lớp lấy từ tài khoản (khóa, không sửa được) để kết quả không bị nhầm tên.
-   - Lưu trên trình duyệt (localStorage). Nếu máy đã kết nối máy chủ của giáo viên (Firebase)
-     thì tài khoản còn được lưu lên đó để kiểm tra trùng tên & đăng nhập ở máy khác.
-   - Mật khẩu không lưu dạng thô: băm SHA-256 + muối riêng từng tài khoản.
+   [MT-20] TÀI KHOẢN HỌC SINH DO GIÁO VIÊN QUẢN LÝ TẬP TRUNG
+   - Phía Học sinh: Ẩn hoàn toàn nút ĐĂNG KÍ, chỉ còn ĐĂNG NHẬP.
+     Chưa có tài khoản / quên MK -> báo "Liên hệ Giáo viên để được cấp tài khoản".
+   - Phía Giáo viên: Cấp hàng loạt từ Danh sách lớp / Excel (.xlsx/.csv),
+     Reset mật khẩu, Khóa/Mở khóa, Xóa tài khoản, Xuất Excel danh sách gửi lớp,
+     tự động đồng bộ lên cả Firebase (s/accounts) và Google Sheets (GasBridge).
    ====================================================================== */
 (function () {
     'use strict';
     var LS_ACC = 'matrix_hs_accounts_v1';
-    var view = 'menu';              // menu | login | register
+    var view = 'login';
     var busy = false;
+    var lastBatchCreated = [];
 
     function $(id) { return document.getElementById(id); }
     function show(id, on) { var el = $(id); if (el) el.classList.toggle('hidden', !on); }
     function api() { return (window.CloudSync && window.CloudSync.api) || null; }
     function cloudOn() { try { var a = api(); return !!(a && a.effStu()); } catch (e) { return false; } }
 
-    /* ---------- kho tài khoản cục bộ ---------- */
     function load() {
         try { var o = JSON.parse(localStorage.getItem(LS_ACC) || 'null'); if (o && o.users) return o; } catch (e) {}
         return { users: {} };
@@ -3995,6 +3994,10 @@
     function normUser(u) { return String(u == null ? '' : u).normalize('NFC').trim().toLowerCase(); }
     function validUser(u) { return /^[a-z0-9._-]{3,30}$/.test(u); }
     function cleanText(s) { return String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); }
+    function noAccentSlug(s) {
+        return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    }
     function cloudKey(u) { return 'accounts/' + String(u).replace(/[.$#\[\]\/\u0000-\u001f\u007f]/g, '_'); }
 
     function rndSalt() {
@@ -4024,15 +4027,14 @@
         return Promise.resolve(fallbackHash(s));
     }
 
-    /* ---------- máy chủ (không bắt buộc) ---------- */
     function cloudGet(u) {
         var gasOn = !!(window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled());
         var p = cloudOn()
-            ? api().req('GET', 's', cloudKey(u)).then(function (r) { return r && r.ph ? r : null; }, function () { return null; })
+            ? api().req('GET', 's', cloudKey(u)).then(function (r) { return r && r.ph && !r.deleted ? r : null; }, function () { return null; })
             : Promise.resolve(null);
         return p.then(function (r) {
             if (r) return r;
-            return gasOn ? window.GasBridge.getAccountFromGas(u) : null;
+            return gasOn ? window.GasBridge.getAccountFromGas(u).then(function (gr) { return gr && gr.ph && !gr.deleted ? gr : null; }) : null;
         });
     }
     function cloudPut(u, rec) {
@@ -4043,119 +4045,57 @@
         var pGas = gasOn ? window.GasBridge.saveAccountToGas(u, rec) : Promise.resolve(false);
         return Promise.all([pFb, pGas]).then(function (arr) { return !!(arr[0] || arr[1]); });
     }
-    /* Tìm tài khoản: ưu tiên cục bộ, rồi máy chủ */
     function findAccount(u) {
         var local = load().users[u];
-        if (local) return Promise.resolve(local);
+        if (local && !local.deleted) return Promise.resolve(local);
         return cloudGet(u).then(function (r) {
-            if (r) { var db = load(); db.users[u] = r; save(db); }
-            return r;
+            if (r && !r.deleted) { var db = load(); db.users[u] = r; save(db); return r; }
+            return null;
         });
     }
 
-    /* ---------- giao diện ---------- */
     function setText(id, t) { var el = $(id); if (el) el.textContent = t; }
     function clearErr() { if (typeof clearLoginError === 'function') clearLoginError(); }
     function err(msg, input, box) { if (typeof showLoginError === 'function') showLoginError(msg, input, box); }
-    function ok(msg) {
-        var el = $('login-error-msg'); if (!el) return;
-        el.textContent = msg;
-        el.className = 'bg-emerald-50 border-2 border-emerald-300 text-emerald-700 rounded-xl px-3.5 py-2 text-xs font-black text-center shadow-sm';
-    }
     function resetErrClass() {
         var el = $('login-error-msg'); if (el) el.className = 'hidden bg-red-50 border-2 border-red-300 text-red-600 rounded-xl px-3.5 py-2 text-xs font-black text-center shadow-sm';
     }
     function setBtn(txt, visible) {
         var b = $('login-submit-btn'); if (!b) return;
-        b.textContent = txt; b.parentElement.classList.toggle('hidden', !visible);
+        b.textContent = txt;
+        if (b.parentElement) b.parentElement.classList.toggle('hidden', !visible);
     }
 
     function showView(v, keepMsg) {
-        view = v;
+        var blockedReg = (v === 'register');
+        view = 'login';
         if (!keepMsg) { clearErr(); resetErrClass(); }
         ['login-name-group', 'login-class-group', 'login-user-group', 'login-pass-group', 'login-pass2-group',
          'login-showpass-wrap', 'login-gv-greet', 'login-gv-blocked', 'login-gv-hint', 'login-reset-wrap', 'login-hs-menu', 'login-hs-back']
             .forEach(function (id) { show(id, false); });
         ['login-pass-input', 'login-pass2-input'].forEach(function (id) { var el = $(id); if (el) { el.value = ''; el.type = 'password'; } });
         var chk = $('login-showpass-check'); if (chk) chk.checked = false;
-        setText('login-pass2-label', '4. Xác nhận lại mật khẩu:');
         var pi = $('login-pass-input');
 
-        if (v === 'menu') {
-            show('login-hs-menu', true);
-            setBtn('', false);
-            setText('login-hero-title', 'CỔNG HỌC SINH');
-            return;
-        }
-        show('login-hs-back', true);
         show('login-user-group', true);
         show('login-pass-group', true);
         show('login-showpass-wrap', true);
-        if (v === 'register') {
-            show('login-name-group', true);
-            show('login-class-group', true);
-            setText('login-name-label', '2. Họ và tên:');
-            setText('login-class-label', '3. Lớp:');
-            setText('login-user-label', '4. Tên đăng nhập (không được trùng):');
-            setText('login-pass-label', '5. Mật khẩu (ít nhất 4 ký tự):');
-            show('login-pass2-group', true);   // [CODE118] Nhập lại mật khẩu khi đăng kí
-            setText('login-pass2-label', '6. Nhập lại mật khẩu:');
-            if (pi) pi.setAttribute('autocomplete', 'new-password');
-            var ni = $('login-name-input'), ci = $('login-class-input');
-            if (ni) { ni.value = ''; ni.placeholder = 'Họ và tên đầy đủ của em...'; }
-            if (ci) ci.value = '';
-            var ui = $('login-user-input'); if (ui) ui.value = '';
-            setBtn('ĐĂNG KÍ ➜', true);
-            setText('login-hero-title', 'ĐĂNG KÍ HỌC SINH');
-        } else {
-            setText('login-user-label', '2. Tên đăng nhập:');
-            setText('login-pass-label', '3. Mật khẩu:');
-            if (pi) pi.setAttribute('autocomplete', 'current-password');
-            setBtn('ĐĂNG NHẬP ➜', true);
-            setText('login-hero-title', 'ĐĂNG NHẬP HỌC SINH');
+        setText('login-user-label', '2. Tên đăng nhập:');
+        setText('login-pass-label', '3. Mật khẩu:');
+        if (pi) pi.setAttribute('autocomplete', 'current-password');
+        setBtn('ĐĂNG NHẬP ➜', true);
+        setText('login-hero-title', 'ĐĂNG NHẬP HỌC SINH');
+        if (blockedReg) {
+            err('🔒 Tài khoản học sinh do Giáo viên cấp. Em hãy liên hệ Giáo viên!', $('login-user-input'), $('login-user-box'));
         }
         if (!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches)) {
             setTimeout(function () {
-                var f = (v === 'register') ? $('login-name-input') : $('login-user-input');
+                var f = $('login-user-input');
                 if (f) { try { f.focus({ preventScroll: true }); } catch (e) { f.focus(); } }
             }, 60);
         }
     }
 
-    /* ---------- đăng kí ---------- */
-    function doRegister() {
-        var ni = $('login-name-input'), ci = $('login-class-input'), ui = $('login-user-input'), pi = $('login-pass-input');
-        var name = cleanText(ni && ni.value), cls = cleanText(ci && ci.value);
-        var userRaw = ui ? ui.value : '', user = normUser(userRaw), pass = pi ? pi.value : '';
-        var p2i = $('login-pass2-input'), pass2 = p2i ? p2i.value : '';
-        if (!name) return err('⚠️ Vui lòng nhập Họ và tên của em!', ni, $('login-name-box'));
-        if (!cls) return err('⚠️ Vui lòng nhập Lớp của em (VD: 12A1)!', ci, $('login-class-box'));
-        if (!user) return err('⚠️ Vui lòng nhập Tên đăng nhập!', ui, $('login-user-box'));
-        if (!validUser(user)) return err('⚠️ Tên đăng nhập gồm 3–30 ký tự: chữ không dấu, số, dấu . _ - (không có khoảng trắng).', ui, $('login-user-box'));
-        if (pass.length < 4) return err('⚠️ Mật khẩu cần có ít nhất 4 ký tự!', pi, $('login-pass-box'));
-        if (!pass2) return err('⚠️ Vui lòng nhập lại mật khẩu để xác nhận!', p2i, $('login-pass2-box'));
-        if (pass2 !== pass) { if (p2i) p2i.value = ''; return err('⚠️ Mật khẩu nhập lại chưa khớp. Em nhập lại nhé!', p2i, $('login-pass2-box')); }
-        if (busy) return; busy = true; setBtn('ĐANG XỬ LÝ...', true);
-
-        findAccount(user).then(function (exist) {
-            if (exist) { busy = false; setBtn('ĐĂNG KÍ ➜', true); return err('❌ Tên đăng nhập "' + user + '" đã có người dùng. Em hãy chọn tên khác!', ui, $('login-user-box')); }
-            var salt = rndSalt();
-            return hashPw(salt, pass).then(function (ph) {
-                var rec = { u: user, name: name, cls: cls, salt: salt, ph: ph, ts: Date.now() };
-                var db = load(); db.users[user] = rec;
-                if (!save(db)) { busy = false; setBtn('ĐĂNG KÍ ➜', true); return err('⚠️ Không lưu được tài khoản trên trình duyệt này (có thể đang ở chế độ ẩn danh).'); }
-                return cloudPut(user, rec).then(function (cloudOk) {
-                    busy = false;
-                    showView('login', true);
-                    var ui2 = $('login-user-input'); if (ui2) ui2.value = user;
-                    ok('✅ Đăng kí thành công! Em hãy nhập mật khẩu để ĐĂNG NHẬP.' + (cloudOn() && !cloudOk ? ' (Tài khoản mới lưu trên máy này.)' : ''));
-                    var p = $('login-pass-input'); if (p && !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches)) p.focus();
-                });
-            });
-        }).catch(function () { busy = false; setBtn('ĐĂNG KÍ ➜', true); err('⚠️ Có lỗi khi đăng kí, em thử lại nhé!'); });
-    }
-
-    /* ---------- đăng nhập ---------- */
     function doLogin() {
         var ui = $('login-user-input'), pi = $('login-pass-input');
         var user = normUser(ui && ui.value), pass = pi ? pi.value : '';
@@ -4165,21 +4105,320 @@
         var bad = function (msg, el, box) { busy = false; setBtn('ĐĂNG NHẬP ➜', true); err(msg, el, box); };
 
         findAccount(user).then(function (acc) {
-            if (!acc) return bad('❌ Chưa có tài khoản "' + user + '". Em hãy bấm "Quay lại" và chọn ĐĂNG KÍ trước!', ui, $('login-user-box'));
+            if (!acc || acc.deleted) return bad('❌ Chưa có tài khoản "' + user + '". Em hãy liên hệ Giáo viên để được cấp tài khoản!', ui, $('login-user-box'));
+            if (acc.locked) return bad('🔒 Tài khoản "' + user + '" đang tạm khóa. Em hãy liên hệ Giáo viên!', ui, $('login-user-box'));
             return hashPw(acc.salt, pass).then(function (ph) {
-                if (ph !== acc.ph) { if (pi) pi.value = ''; return bad('❌ Mật khẩu chưa đúng. Em nhập lại nhé!', pi, $('login-pass-box')); }
+                if (ph !== acc.ph) { if (pi) pi.value = ''; return bad('❌ Mật khẩu chưa đúng. Nếu quên mật khẩu, em hãy liên hệ Giáo viên để đặt lại!', pi, $('login-pass-box')); }
                 busy = false; setBtn('ĐĂNG NHẬP ➜', true);
                 if (typeof finishLoginModal === 'function') finishLoginModal('HS', acc.name, acc.cls, acc.u);
             });
         }).catch(function () { bad('⚠️ Có lỗi khi đăng nhập, em thử lại nhé!'); });
     }
 
+    function uniqueUsername(name, cls, usersMap) {
+        var baseName = noAccentSlug(name) || 'hocsinh';
+        var baseCls = noAccentSlug(cls);
+        var base = baseCls ? (baseName + '_' + baseCls) : baseName;
+        if (base.length > 26) base = base.slice(0, 26);
+        if (!validUser(base)) base = ('hs_' + base).slice(0, 26);
+        var cand = base, n = 2;
+        while (usersMap[cand] && !usersMap[cand].deleted) {
+            cand = base.slice(0, 24) + '_' + n;
+            n++;
+        }
+        return cand;
+    }
+
+    function syncAccountsBoth() {
+        return (window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled())
+            ? window.GasBridge.syncAllAccountsToGas()
+            : Promise.resolve({ ok: true });
+    }
+
+    function bulkCreate(rows, defaultPass) {
+        var pass = String(defaultPass || '123456').trim();
+        if (pass.length < 4) return Promise.resolve({ ok: false, error: 'Mật khẩu mặc định cần ít nhất 4 ký tự.' });
+        var db = load();
+        var list = Array.isArray(rows) ? rows : [];
+        var created = [], skipped = [];
+        var chain = Promise.resolve();
+
+        list.forEach(function (row) {
+            var name = cleanText(row && row.name);
+            var cls = cleanText((row && row.cls) || '');
+            if (!name) return;
+            var reqUser = row && row.u ? normUser(row.u) : '';
+            if (reqUser && db.users[reqUser] && !db.users[reqUser].deleted) {
+                skipped.push({ name: name, cls: cls, u: reqUser, reason: 'Trùng tên đăng nhập' });
+                return;
+            }
+            var user = (reqUser && validUser(reqUser)) ? reqUser : uniqueUsername(name, cls, db.users);
+            db.users[user] = { u: user, name: name, cls: cls, salt: '', ph: '', ts: Date.now(), locked: false };
+            chain = chain.then(function () {
+                var salt = rndSalt();
+                return hashPw(salt, pass).then(function (ph) {
+                    var rec = { u: user, name: name, cls: cls, salt: salt, ph: ph, ts: Date.now(), locked: false };
+                    db.users[user] = rec;
+                    created.push({ u: user, name: name, cls: cls, defaultPass: pass });
+                    return cloudPut(user, rec);
+                });
+            });
+        });
+
+        return chain.then(function () {
+            save(db);
+            lastBatchCreated = created.slice();
+            return syncAccountsBoth().then(function () {
+                return { ok: true, created: created, skipped: skipped };
+            });
+        });
+    }
+
+    function resetPassword(u, newPass) {
+        var user = normUser(u), pass = String(newPass || '').trim();
+        if (pass.length < 4) return Promise.resolve({ ok: false, error: 'Mật khẩu mới cần ít nhất 4 ký tự.' });
+        var db = load(), acc = db.users[user];
+        if (!acc || acc.deleted) return Promise.resolve({ ok: false, error: 'Không tìm thấy tài khoản.' });
+        var salt = rndSalt();
+        return hashPw(salt, pass).then(function (ph) {
+            acc.salt = salt; acc.ph = ph; acc.ts = Date.now();
+            save(db);
+            return cloudPut(user, acc).then(function () { return syncAccountsBoth(); }).then(function () { return { ok: true, u: user }; });
+        });
+    }
+
+    function toggleLock(u) {
+        var user = normUser(u), db = load(), acc = db.users[user];
+        if (!acc || acc.deleted) return Promise.resolve({ ok: false, error: 'Không tìm thấy tài khoản.' });
+        acc.locked = !acc.locked; acc.ts = Date.now();
+        save(db);
+        return cloudPut(user, acc).then(function () { return syncAccountsBoth(); }).then(function () { return { ok: true, u: user, locked: acc.locked }; });
+    }
+
+    function deleteAccount(u) {
+        var user = normUser(u), db = load(), acc = db.users[user];
+        if (!acc) return Promise.resolve({ ok: false, error: 'Không tìm thấy tài khoản.' });
+        var tombstone = { u: user, name: acc.name, cls: acc.cls, salt: '', ph: '', deleted: true, ts: Date.now() };
+        delete db.users[user];
+        save(db);
+        return cloudPut(user, tombstone).then(function () { return syncAccountsBoth(); }).then(function () { return { ok: true, u: user }; });
+    }
+
+    function listAccounts() {
+        var users = load().users || {};
+        return Object.keys(users).map(function (k) { return users[k]; })
+            .filter(function (a) { return a && !a.deleted; })
+            .sort(function (a, b) { return String(a.cls || '').localeCompare(String(b.cls || '')) || String(a.name || '').localeCompare(String(b.name || '')); });
+    }
+
+    function exportAccountsExcel(customRows) {
+        var rows = (Array.isArray(customRows) && customRows.length) ? customRows : listAccounts().map(function (a) {
+            return { u: a.u, name: a.name, cls: a.cls, defaultPass: '(Đã mã hóa)', status: a.locked ? 'Đang khóa' : 'Hoạt động' };
+        });
+        if (!rows.length) return false;
+        var aoa = [['STT', 'Họ và tên', 'Lớp', 'Tên đăng nhập', 'Mật khẩu', 'Trạng thái']];
+        rows.forEach(function (r, idx) {
+            aoa.push([idx + 1, r.name || '', r.cls || '', r.u || '', r.defaultPass || '(Đã mã hóa)', r.status || 'Hoạt động']);
+        });
+        if (window.XLSX && XLSX.utils && XLSX.writeFile) {
+            var wb = XLSX.utils.book_new();
+            var ws = XLSX.utils.aoa_to_sheet(aoa);
+            XLSX.utils.book_append_sheet(wb, ws, 'TaiKhoan_HS');
+            XLSX.writeFile(wb, 'Danh_Sach_Tai_Khoan_HS.xlsx');
+            return true;
+        }
+        var csv = '\uFEFF' + aoa.map(function (r) { return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(','); }).join('\n');
+        var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'Danh_Sach_Tai_Khoan_HS.csv';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        return true;
+    }
+
+    function getClassesSafe() {
+        try {
+            if (window.LTDLibBridge && typeof window.LTDLibBridge.getClasses === 'function') return window.LTDLibBridge.getClasses();
+            if (window.LTDLibBridge && typeof window.LTDLibBridge.getVar === 'function') {
+                var c = window.LTDLibBridge.getVar('classesData');
+                if (Array.isArray(c)) return c;
+            }
+        } catch (e) {}
+        return [];
+    }
+
+    function escH(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; });
+    }
+
+    function openManager() {
+        try {
+            if (window.LTDLibBridge && typeof window.LTDLibBridge.getVar === 'function' && window.LTDLibBridge.getVar('isStudentMode')) {
+                return;
+            }
+        } catch (e) {}
+        var old = $('hs-acc-mgr-modal');
+        if (old) old.remove();
+
+        var ov = document.createElement('div');
+        ov.id = 'hs-acc-mgr-modal';
+        ov.style.cssText = 'position:fixed;inset:0;z-index:100005;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:12px;font-family:"Segoe UI",system-ui,sans-serif';
+        var classes = getClassesSafe();
+        var clsOpts = '<option value="">-- Chọn lớp trong Quản lí lớp học --</option>' + classes.map(function (c) {
+            return '<option value="' + escH(c.id) + '">' + escH(c.name || c.id) + ' (' + (Array.isArray(c.students) ? c.students.length : 0) + ' HS)</option>';
+        }).join('');
+
+        ov.innerHTML =
+            '<div style="background:#fff;border-radius:18px;width:100%;max-width:860px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.3);overflow:hidden">' +
+            '  <div style="padding:14px 18px;background:linear-gradient(90deg,#1e293b,#312e81);color:#fff;display:flex;justify-content:space-between;align-items:center">' +
+            '    <div style="font-size:16px;font-weight:900">👥 QUẢN LÝ TÀI KHOẢN HỌC SINH (GIÁO VIÊN CẤP)</div>' +
+            '    <button type="button" id="hs-mgr-close" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;padding:4px 10px;font-weight:900;cursor:pointer">✕</button>' +
+            '  </div>' +
+            '  <div style="padding:14px 18px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:12px">' +
+            '    <div style="padding:12px;border-radius:12px;background:#f8fafc;border:1.5px solid #cbd5e1">' +
+            '      <div style="font-weight:900;color:#0f172a;margin-bottom:8px">1) Cấp hàng loạt từ Danh sách lớp hoặc file Excel (.xlsx/.csv)</div>' +
+            '      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">' +
+            '        <select id="hs-mgr-cls-sel" style="flex:1;min-width:200px;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-weight:700">' + clsOpts + '</select>' +
+            '        <input id="hs-mgr-cls-name" type="text" placeholder="Tên lớp (VD: 12A1)" style="width:140px;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-weight:700">' +
+            '        <input id="hs-mgr-def-pw" type="text" value="123456" placeholder="MK mặc định" style="width:130px;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-weight:700">' +
+            '        <label style="padding:8px 12px;border-radius:8px;background:#0284c7;color:#fff;font-weight:800;font-size:13px;cursor:pointer">📄 Nạp Excel (.xlsx/.csv)<input id="hs-mgr-excel" type="file" accept=".xlsx,.xls,.csv" style="display:none"></label>' +
+            '      </div>' +
+            '      <textarea id="hs-mgr-bulk-txt" rows="4" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:13px" placeholder="Mỗi dòng 1 học sinh: Họ và tên (hoặc Họ và tên | Lớp)..."></textarea>' +
+            '      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">' +
+            '        <button type="button" id="hs-mgr-create-btn" style="padding:9px 14px;border-radius:10px;border:none;background:linear-gradient(90deg,#4f46e5,#2563eb);color:#fff;font-weight:900;cursor:pointer">⚡ Cấp tài khoản hàng loạt</button>' +
+            '        <button type="button" id="hs-mgr-export-btn" style="padding:9px 14px;border-radius:10px;border:none;background:#059669;color:#fff;font-weight:900;cursor:pointer">📥 Xuất Excel danh sách</button>' +
+            '        <span id="hs-mgr-status" style="font-size:13px;font-weight:800;color:#0369a1"></span>' +
+            '      </div>' +
+            '    </div>' +
+            '    <div>' +
+            '      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">' +
+            '        <b style="color:#0f172a">2) Danh sách tài khoản đã cấp (<span id="hs-mgr-count">0</span>)</b>' +
+            '        <input id="hs-mgr-search" type="text" placeholder="🔍 Tìm tên, lớp, username..." style="width:240px;padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:13px">' +
+            '      </div>' +
+            '      <div id="hs-mgr-list" style="border:1.5px solid #e2e8f0;border-radius:10px;max-height:260px;overflow:auto"></div>' +
+            '    </div>' +
+            '  </div>' +
+            '</div>';
+        document.body.appendChild(ov);
+
+        function renderList() {
+            var q = noAccentSlug(($('hs-mgr-search') && $('hs-mgr-search').value) || '');
+            var all = listAccounts();
+            var cntEl = $('hs-mgr-count'); if (cntEl) cntEl.textContent = String(all.length);
+            var filtered = all.filter(function (a) {
+                if (!q) return true;
+                return noAccentSlug(a.name + a.cls + a.u).indexOf(q) >= 0;
+            });
+            var box = $('hs-mgr-list');
+            if (!box) return;
+            if (!filtered.length) {
+                box.innerHTML = '<div style="padding:16px;text-align:center;color:#64748b;font-weight:700">Chưa có tài khoản học sinh nào.</div>';
+                return;
+            }
+            box.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+                '<thead><tr style="background:#f1f5f9;text-align:left"><th style="padding:8px">Họ và tên</th><th style="padding:8px">Lớp</th><th style="padding:8px">Tên đăng nhập</th><th style="padding:8px">Trạng thái</th><th style="padding:8px">Thao tác</th></tr></thead><tbody>' +
+                filtered.map(function (a) {
+                    return '<tr style="border-top:1px solid #e2e8f0">' +
+                        '<td style="padding:7px 8px;font-weight:700">' + escH(a.name) + '</td>' +
+                        '<td style="padding:7px 8px">' + escH(a.cls || '') + '</td>' +
+                        '<td style="padding:7px 8px;font-family:monospace;font-weight:800;color:#1d4ed8">' + escH(a.u) + '</td>' +
+                        '<td style="padding:7px 8px">' + (a.locked ? '<span style="color:#b91c1c;font-weight:800">🔒 Đã khóa</span>' : '<span style="color:#047857;font-weight:800">✅ Hoạt động</span>') + '</td>' +
+                        '<td style="padding:7px 8px;display:flex;gap:4px;flex-wrap:wrap">' +
+                        '  <button type="button" data-act="reset" data-u="' + escH(a.u) + '" style="padding:4px 8px;border:none;border-radius:6px;background:#e0e7ff;color:#3730a3;font-weight:800;cursor:pointer">🔑 Reset MK</button>' +
+                        '  <button type="button" data-act="lock" data-u="' + escH(a.u) + '" style="padding:4px 8px;border:none;border-radius:6px;background:#fef3c7;color:#92400e;font-weight:800;cursor:pointer">' + (a.locked ? '🔓 Mở' : '🔒 Khóa') + '</button>' +
+                        '  <button type="button" data-act="del" data-u="' + escH(a.u) + '" style="padding:4px 8px;border:none;border-radius:6px;background:#fee2e2;color:#b91c1c;font-weight:800;cursor:pointer">🗑️ Xóa</button>' +
+                        '</td></tr>';
+                }).join('') + '</tbody></table>';
+        }
+
+        $('hs-mgr-close').onclick = function () { ov.remove(); };
+        $('hs-mgr-search').oninput = renderList;
+        $('hs-mgr-cls-sel').onchange = function (e) {
+            var cid = e.target.value;
+            var clsObj = classes.find(function (c) { return c && c.id === cid; });
+            if (!clsObj) return;
+            $('hs-mgr-cls-name').value = clsObj.name || '';
+            var lines = (clsObj.students || []).map(function (s) { return (s && s.name) ? s.name : ''; }).filter(Boolean);
+            $('hs-mgr-bulk-txt').value = lines.join('\n');
+        };
+        $('hs-mgr-excel').onchange = function (e) {
+            var f = e.target.files && e.target.files[0];
+            if (!f || !window.XLSX) return;
+            var reader = new FileReader();
+            reader.onload = function (ev) {
+                try {
+                    var wb = XLSX.read(ev.target.result, { type: 'array' });
+                    var ws = wb.Sheets[wb.SheetNames[0]];
+                    var rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    var lines = [];
+                    rows.forEach(function (r, idx) {
+                        if (!Array.isArray(r) || !r.length) return;
+                        var c0 = cleanText(r[0]), c1 = cleanText(r[1]);
+                        if (idx === 0 && /ho.*ten|stt/i.test(noAccentSlug(c0))) return;
+                        var name = (/^\d+$/.test(c0) && c1) ? c1 : c0;
+                        var cls = (/^\d+$/.test(c0) && r[2]) ? cleanText(r[2]) : c1;
+                        if (name) lines.push(cls ? (name + ' | ' + cls) : name);
+                    });
+                    $('hs-mgr-bulk-txt').value = lines.join('\n');
+                    $('hs-mgr-status').textContent = '✓ Đã nạp ' + lines.length + ' dòng từ Excel.';
+                } catch (err2) {
+                    $('hs-mgr-status').textContent = '❌ Không đọc được file Excel.';
+                }
+            };
+            reader.readAsArrayBuffer(f);
+        };
+        $('hs-mgr-create-btn').onclick = function () {
+            var raw = $('hs-mgr-bulk-txt').value || '';
+            var defCls = cleanText($('hs-mgr-cls-name').value);
+            var defPw = ($('hs-mgr-def-pw').value || '123456').trim();
+            var rows = raw.split(/\r?\n/).map(function (ln) {
+                var parts = ln.split('|').map(cleanText);
+                if (!parts[0]) return null;
+                return { name: parts[0], cls: parts[1] || defCls };
+            }).filter(Boolean);
+            if (!rows.length) { $('hs-mgr-status').textContent = '⚠️ Chưa có danh sách học sinh.'; return; }
+            $('hs-mgr-status').textContent = '⏳ Đang tạo & đồng bộ tài khoản...';
+            bulkCreate(rows, defPw).then(function (res) {
+                if (res.ok) {
+                    $('hs-mgr-status').textContent = '✅ Đã cấp ' + res.created.length + ' tài khoản (MK: ' + defPw + ').';
+                    renderList();
+                } else {
+                    $('hs-mgr-status').textContent = '❌ ' + (res.error || 'Lỗi tạo tài khoản.');
+                }
+            });
+        };
+        $('hs-mgr-export-btn').onclick = function () {
+            exportAccountsExcel(lastBatchCreated.length ? lastBatchCreated : null);
+        };
+        $('hs-mgr-list').onclick = function (e) {
+            var btn = e.target && e.target.closest ? e.target.closest('button[data-act]') : null;
+            if (!btn) return;
+            var act = btn.getAttribute('data-act'), u = btn.getAttribute('data-u');
+            if (act === 'reset') {
+                var np = prompt('Nhập mật khẩu mới cho "' + u + '" (tối thiểu 4 ký tự):', '123456');
+                if (np) resetPassword(u, np).then(function () { $('hs-mgr-status').textContent = '✅ Đã đổi mật khẩu cho ' + u; });
+            } else if (act === 'lock') {
+                toggleLock(u).then(function (r) { renderList(); $('hs-mgr-status').textContent = r.locked ? '🔒 Đã khóa ' + u : '🔓 Đã mở khóa ' + u; });
+            } else if (act === 'del') {
+                if (confirm('Xóa tài khoản "' + u + '"?')) deleteAccount(u).then(function () { renderList(); $('hs-mgr-status').textContent = '🗑️ Đã xóa ' + u; });
+            }
+        };
+        renderList();
+    }
+
     window.HSAuth = {
         view: function () { return view; },
         show: showView,
-        submit: function () { if (view === 'register') doRegister(); else if (view === 'login') doLogin(); },
-        hasAccount: function (u) { return !!load().users[normUser(u)]; },
-        get: function (u) { return load().users[normUser(u)] || null; }
+        submit: function () { doLogin(); },
+        hasAccount: function (u) { var a = load().users[normUser(u)]; return !!(a && !a.deleted); },
+        get: function (u) { var a = load().users[normUser(u)]; return (a && !a.deleted) ? a : null; },
+        bulkCreate: bulkCreate,
+        resetPassword: resetPassword,
+        toggleLock: toggleLock,
+        deleteAccount: deleteAccount,
+        listAccounts: listAccounts,
+        exportAccountsExcel: exportAccountsExcel,
+        openManager: openManager
     };
     window.hsAuthShow = showView;
 })();
