@@ -11984,7 +11984,12 @@ const COLS = 24;
             saveToStorage();
             renderLibraryList();
 
-            try { if (window.CloudSync && CloudSync.schedule) CloudSync.schedule(true); } catch (e) {}   // [CODE78] đưa đề lên máy chủ ngay
+            try {
+                if (window.CloudSync) {
+                    if (newStatus && typeof CloudSync.publishNow === 'function') CloudSync.publishNow(id);
+                    else if (typeof CloudSync.schedule === 'function') CloudSync.schedule(true);
+                }
+            } catch (e) {}   // [MT-21] đưa đề/phiếu lên máy chủ ngay
             if (newStatus) {
                 openPublishLinkModal(id, true);   // [CODE78] hiện LINK LÀM BÀI để sao chép / chia sẻ
                 return;
@@ -12047,8 +12052,9 @@ const COLS = 24;
             if (!topic || !m) return;
             _publinkTopicId = topicId;
             _plSet('publink-title', '', '');
-            const ti = _plEl('publink-title'); if (ti) { ti.className = 'text-lg font-black uppercase tracking-wide'; ti.textContent = justPublished ? '🚀 Đã xuất bản! Link làm bài' : '🔗 Link làm bài cho học sinh'; }
-            const tp = _plEl('publink-topic'); if (tp) tp.textContent = `${topic.subtitle || ''} (${(topic.questions || []).length} câu)`;
+            const isHsSheet = Boolean(topic.isMinMapDeck && topic.minMapRole === 'hs');
+            const ti = _plEl('publink-title'); if (ti) { ti.className = 'text-lg font-black uppercase tracking-wide'; ti.textContent = isHsSheet ? (justPublished ? '🚀 Đã xuất bản Phiếu học tập!' : '📄 Link Phiếu học tập cho học sinh') : (justPublished ? '🚀 Đã xuất bản! Link làm bài' : '🔗 Link làm bài cho học sinh'); }
+            const tp = _plEl('publink-topic'); if (tp) tp.textContent = isHsSheet ? `${topic.subtitle || ''} (${(topic.hsSlideKeys || []).length} trang phiếu A4 — Học sinh tải PDF trong Thư viện)` : `${topic.subtitle || ''} (${(topic.questions || []).length} câu)`;
             const baseIn = _plEl('publink-base'); if (baseIn) baseIn.value = getEffectiveBaseUrl();
             const qr = _plEl('publink-qr-wrap'); if (qr) qr.classList.add('hidden');
             _publinkRefreshUrl();

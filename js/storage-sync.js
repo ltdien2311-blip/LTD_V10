@@ -1413,7 +1413,15 @@
         arr('classesData').forEach(function (c) { ((c && c.assignments) || []).forEach(function (x) { if (x && x.topicId) asg[x.topicId] = 1; }); });
         arr('savedTopics').forEach(function (t) {
             if (!t || !t.id || t.id === DEFAULT_TOPIC) return;
-            if (t.isPublished || pm[t.id] || S.forcePub.has(t.id) || asg[t.id]) m.set(t.id, t);
+            if (t.isPublished || pm[t.id] || S.forcePub.has(t.id) || asg[t.id]) {
+                if (t.isMinMapDeck && t.minMapRole === 'hs') {
+                    var copyHs = Object.assign({}, t, { isPublished: true });
+                    delete copyHs.minMapMarkdown;
+                    m.set(t.id, copyHs);
+                } else {
+                    m.set(t.id, t);
+                }
+            }
         });
         return m;
     }
@@ -1877,6 +1885,7 @@
                         Object.keys(pub).forEach(function (e) {
                             var env = pub[e]; if (!env || !env.k) return;
                             var o = parseEnv(env); if (!o || !o.id) return;
+                            if (o.isMinMapDeck && o.minMapRole === 'hs') o.isPublished = true;
                             seen[o.id] = true;
                             S.pubTopics[enc(o.id)] = o;
                             var i = T.findIndex(function (t) { return t && t.id === o.id; });
@@ -2747,6 +2756,13 @@
 
     window.CloudSync = {
         setStudentToken: setStudentToken,
+        publishNow: function (topicId) {
+            if (topicId) S.forcePub.add(String(topicId));
+            S.dirty = true;
+            if (!(teacherReady() || studentReady())) return Promise.resolve();
+            if (S.busy) { S.again = true; return Promise.resolve(); }
+            return sync();
+        },
         liveCfg: function () { var c = effStu(); return c ? { u: c.u, p: c.p } : null; }, liveToken: token, tokenFor: tokenFor, parseToken: parseStuToken,
         getFbPool: getFbPool, pickLiveCfg: pickLiveCfg, nextFbIdx: nextFbIdx, saveFbPool: saveFbPool, testFbPool: testFbPool,
         testFbPoolUI: function () {
