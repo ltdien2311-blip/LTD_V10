@@ -490,10 +490,26 @@
         var wrapped = (sel.slice(0, 2) === '==' && sel.slice(-2) === '==')
             ? sel.slice(2, -2)
             : '==' + sel + '==';
+        var prevScroll = ed.scrollTop || 0;
         ed.value = val.slice(0, start) + wrapped + val.slice(end);
+        try {
+            if (typeof ed.focus === 'function') ed.focus();
+            if (typeof ed.setSelectionRange === 'function') {
+                ed.setSelectionRange(start, start + wrapped.length);
+            } else {
+                ed.selectionStart = start;
+                ed.selectionEnd = start + wrapped.length;
+            }
+            ed.scrollTop = prevScroll;
+        } catch (e) {}
         recordHistory();
         saveDraft();
         renderAll();
+        try {
+            var curRow = (ed.value || '').slice(0, start).split('\n').length - 1;
+            if (typeof syncStageToRow === 'function') syncStageToRow(curRow);
+            if (typeof updateEditorLineHighlight === 'function') updateEditorLineHighlight(curRow, false);
+        } catch (e2) {}
     }
 
     function switchTab(tab) {
