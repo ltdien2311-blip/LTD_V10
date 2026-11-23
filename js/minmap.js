@@ -1,0 +1,2317 @@
+/* ============================================================================
+ * js/minmap.js — Mô-đun độc lập 🗺️ MinMap (Sơ đồ trực quan 1920x1080 GV & A4 HS)
+ * Khế ước MT-3.2: Cô lập 100% trong #minmap-modal, không rò rỉ DOM ngoài.
+ * ============================================================================ */
+(function (global) {
+    'use strict';
+
+    var LS_DRAFT = 'ltd_minmap_draft_v1';
+    var LS_ED_FS = 'ltd_minmap_ed_fs_v1';
+    var COLORS = ['#FFF000', '#00FF01', '#FF9F43'];
+    var FRAMES = ['#FFF000', '#FFFFFF', '#FFFFFF', '#00FF01'];
+
+    var SAMPLE_MINMAP = [
+        '# 🧬 KHÁI NIỆM & BIỂU DIỄN POLYMER',
+        '',
+        '## 📖 1. ĐỊNH NGHĨA CƠ BẢN',
+        '🧱 Polymer:',
+        '  Hợp chất có ==phân tử khối lớn==, do nhiều ==mắt xích== liên kết tạo nên',
+        '🧩 Monomer:',
+        '  Những ==phân tử nhỏ==, phản ứng với nhau để tạo nên ==polymer==',
+        '🔢 Hệ số $\\mathrm{n}$:',
+        '  ==Hệ số polymer hóa== (chỉ ==số lượng mắt xích== trong công thức)',
+        '',
+        '## 🧪 2. BIỂU DIỄN CÔNG THỨC POLYMER',
+        '🛍️ Polyethene (PE):',
+        '  Trùng hợp ethene ($\\mathrm{CH_2=CH_2}$) tạo ==PE==: $\\mathrm{(-CH_2-CH_2-)_n}$',
+        '🚿 Poly(vinyl chloride) (PVC):',
+        '  Từ vinyl chloride ($\\mathrm{CH_2=CHCl}$) tạo ==PVC==: $\\mathrm{(-CH_2-CHCl-)_n}$',
+        '⚠️ Bẫy:',
+        '  ⛔ Hay nhầm: Thu gọn mắt xích của PE thành $\\mathrm{-CH_2-}$',
+        '  ✅ Nhớ đúng: Giữ đủ bộ khung 2C của ethene là ==$\\mathrm{-CH_2-CH_2-}$=='
+    ].join('\n');
+
+    var mmWin = {};
+    var modalEl = null;
+    var resizeObs = null;
+    var state = {
+        tab: 'teacher',
+        zoom100: false,
+        camVisible: false,
+        sloganOn: true,
+        sloganTheme: 'theme-aurora',
+        stageBg: 'bg-obsidian',
+        swapCols: false,
+        font: 'Segoe UI',
+        teacherBodyFs: 40,
+        teacherMainTitleFs: 38,
+        teacherCardTitleFs: 30,
+        splitOverride: null,
+        studentBodyFs: 13,
+        studentMainTitleFs: 24,
+        studentCardTitleFs: 18.5,
+        blankScale: 1,
+        selectedBlankId: null,
+        blankWidths: {},
+        blankRows: {},
+        lineAligns: {},
+        selectedBranch: 0,
+        branchImages: {},
+        teacherSeq: 1,
+        studentSeq: 1,
+        history: [],
+        historyIdx: -1,
+        busyExport: false
+    };
+
+    var ICON_GROUPS = [
+        { label: 'Kiến thức & Trọng tâm', icons: ['🎯', '📌', '📖', '💡', '🧠', '🔑', '⭐', '📝'] },
+        { label: 'Hóa học & Thí nghiệm', icons: ['🧬', '⚛️', '🧪', '⚗️', '🔬', '🧫', '🌡️', '⚡', '🔥', '💧'] },
+        { label: 'Cấu trúc & Liên kết', icons: ['🔗', '🧩', '🧱', '📐', '📊', '📈', '⚖️', '🔄'] },
+        { label: 'Bẫy & Lưu ý', icons: ['⚠️', '⛔', '❌', '✅', '🔍', '🛡️', '💬', '❗'] },
+        { label: 'Điều hướng', icons: ['➡️', '🔹', '🔸', '1️⃣', '2️⃣', '3️⃣', '4️⃣'] }
+    ];
+
+    function $(sel) {
+        return modalEl ? modalEl.querySelector(sel) : null;
+    }
+    function $all(sel) {
+        return modalEl ? Array.prototype.slice.call(modalEl.querySelectorAll(sel)) : [];
+    }
+    function escapeHtml(str) {
+        return String(str || '').replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+    function showToast(msg, type) {
+        if (!modalEl) return;
+        var box = $('#mm-toast-box');
+        if (!box) return;
+        var el = document.createElement('div');
+        el.style.cssText = 'padding:8px 12px;border-radius:8px;font-size:12px;font-weight:700;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.35);background:' +
+            (type === 'error' ? '#dc2626' : type === 'warning' ? '#d97706' : '#059669');
+        el.textContent = msg;
+        box.appendChild(el);
+        setTimeout(function () { try { box.removeChild(el); } catch (e) {} }, 3000);
+    }
+    function setStatus(msg) {
+        var el = $('.vp-export-status');
+        if (el) el.textContent = msg;
+    }
+
+!function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"function"==typeof define&&define.amd?define(["exports"],e):e((mmWin.htmlToImage={}))}(this,(function(t){"use strict";function e(t,e,n,r){return new(n||(n=Promise))((function(i,o){function u(t){try{a(r.next(t))}catch(t){o(t)}}function c(t){try{a(r.throw(t))}catch(t){o(t)}}function a(t){var e;t.done?i(t.value):(e=t.value,e instanceof n?e:new n((function(t){t(e)}))).then(u,c)}a((r=r.apply(t,e||[])).next())}))}function n(t,e){var n,r,i,o,u={label:0,sent:function(){if(1&i[0])throw i[1];return i[1]},trys:[],ops:[]};return o={next:c(0),throw:c(1),return:c(2)},"function"==typeof Symbol&&(o[Symbol.iterator]=function(){return this}),o;function c(c){return function(a){return function(c){if(n)throw new TypeError("Generator is already executing.");for(;o&&(o=0,c[0]&&(u=0)),u;)try{if(n=1,r&&(i=2&c[0]?r.return:c[0]?r.throw||((i=r.return)&&i.call(r),0):r.next)&&!(i=i.call(r,c[1])).done)return i;switch(r=0,i&&(c=[2&c[0],i.value]),c[0]){case 0:case 1:i=c;break;case 4:return u.label++,{value:c[1],done:!1};case 5:u.label++,r=c[1],c=[0];continue;case 7:c=u.ops.pop(),u.trys.pop();continue;default:if(!(i=u.trys,(i=i.length>0&&i[i.length-1])||6!==c[0]&&2!==c[0])){u=0;continue}if(3===c[0]&&(!i||c[1]>i[0]&&c[1]<i[3])){u.label=c[1];break}if(6===c[0]&&u.label<i[1]){u.label=i[1],i=c;break}if(i&&u.label<i[2]){u.label=i[2],u.ops.push(c);break}i[2]&&u.ops.pop(),u.trys.pop();continue}c=e.call(t,u)}catch(t){c=[6,t],r=0}finally{n=i=0}if(5&c[0])throw c[1];return{value:c[0]?c[1]:void 0,done:!0}}([c,a])}}}var r,i=(r=0,function(){return r+=1,"u".concat("0000".concat((Math.random()*Math.pow(36,4)<<0).toString(36)).slice(-4)).concat(r)});function o(t){for(var e=[],n=0,r=t.length;n<r;n++)e.push(t[n]);return e}var u=null;function c(t){return void 0===t&&(t={}),u||(u=t.includeStyleProperties?t.includeStyleProperties:o(window.getComputedStyle(document.documentElement)))}function a(t,e){var n=(t.ownerDocument.defaultView||window).getComputedStyle(t).getPropertyValue(e);return n?parseFloat(n.replace("px","")):0}function s(t,e){void 0===e&&(e={});var n,r,i,o=e.width||(r=a(n=t,"border-left-width"),i=a(n,"border-right-width"),n.clientWidth+r+i),u=e.height||function(t){var e=a(t,"border-top-width"),n=a(t,"border-bottom-width");return t.clientHeight+e+n}(t);return{width:o,height:u}}var l=16384;function f(t,e){return void 0===e&&(e={}),t.toBlob?new Promise((function(n){t.toBlob(n,e.type?e.type:"image/png",e.quality?e.quality:1)})):new Promise((function(n){for(var r=window.atob(t.toDataURL(e.type?e.type:void 0,e.quality?e.quality:void 0).split(",")[1]),i=r.length,o=new Uint8Array(i),u=0;u<i;u+=1)o[u]=r.charCodeAt(u);n(new Blob([o],{type:e.type?e.type:"image/png"}))}))}function h(t){return new Promise((function(e,n){var r=new Image;r.onload=function(){r.decode().then((function(){requestAnimationFrame((function(){return e(r)}))}))},r.onerror=n,r.crossOrigin="anonymous",r.decoding="async",r.src=t}))}function d(t){return e(this,void 0,void 0,(function(){return n(this,(function(e){return[2,Promise.resolve().then((function(){return(new XMLSerializer).serializeToString(t)})).then(encodeURIComponent).then((function(t){return"data:image/svg+xml;charset=utf-8,".concat(t)}))]}))}))}function v(t,r,i){return e(this,void 0,void 0,(function(){var e,o,u;return n(this,(function(n){return e="http://www.w3.org/2000/svg",o=document.createElementNS(e,"svg"),u=document.createElementNS(e,"foreignObject"),o.setAttribute("width","".concat(r)),o.setAttribute("height","".concat(i)),o.setAttribute("viewBox","0 0 ".concat(r," ").concat(i)),u.setAttribute("width","100%"),u.setAttribute("height","100%"),u.setAttribute("x","0"),u.setAttribute("y","0"),u.setAttribute("externalResourcesRequired","true"),o.appendChild(u),u.appendChild(t),[2,d(o)]}))}))}var p=function(t,e){if(t instanceof e)return!0;var n=Object.getPrototypeOf(t);return null!==n&&(n.constructor.name===e.name||p(n,e))};function g(t,e,n,r){var i=".".concat(t,":").concat(e),o=n.cssText?function(t){var e=t.getPropertyValue("content");return"".concat(t.cssText," content: '").concat(e.replace(/'|"/g,""),"';")}(n):function(t,e){return c(e).map((function(e){var n=t.getPropertyValue(e),r=t.getPropertyPriority(e);return"".concat(e,": ").concat(n).concat(r?" !important":"",";")})).join(" ")}(n,r);return document.createTextNode("".concat(i,"{").concat(o,"}"))}function m(t,e,n,r){var o=window.getComputedStyle(t,n),u=o.getPropertyValue("content");if(""!==u&&"none"!==u){var c=i();try{e.className="".concat(e.className," ").concat(c)}catch(t){return}var a=document.createElement("style");a.appendChild(g(c,n,o,r)),e.appendChild(a)}}var w="application/font-woff",y="image/jpeg",b={woff:w,woff2:w,ttf:"application/font-truetype",eot:"application/vnd.ms-fontobject",png:"image/png",jpg:y,jpeg:y,gif:"image/gif",tiff:"image/tiff",svg:"image/svg+xml",webp:"image/webp"};function S(t){var e=function(t){var e=/\.([^./]*?)$/g.exec(t);return e?e[1]:""}(t).toLowerCase();return b[e]||""}function E(t){return-1!==t.search(/^(data:)/)}function x(t,e){return"data:".concat(e,";base64,").concat(t)}function C(t,r,i){return e(this,void 0,void 0,(function(){var e,o;return n(this,(function(n){switch(n.label){case 0:return[4,fetch(t,r)];case 1:if(404===(e=n.sent()).status)throw new Error('Resource "'.concat(e.url,'" not found'));return[4,e.blob()];case 2:return o=n.sent(),[2,new Promise((function(t,n){var r=new FileReader;r.onerror=n,r.onloadend=function(){try{t(i({res:e,result:r.result}))}catch(t){n(t)}},r.readAsDataURL(o)}))]}}))}))}var P={};function R(t,r,i){return e(this,void 0,void 0,(function(){var e,o,u,c,a;return n(this,(function(n){switch(n.label){case 0:if(e=function(t,e,n){var r=t.replace(/\?.*/,"");return n&&(r=t),/ttf|otf|eot|woff2?/i.test(r)&&(r=r.replace(/.*\//,"")),e?"[".concat(e,"]").concat(r):r}(t,r,i.includeQueryParams),null!=P[e])return[2,P[e]];i.cacheBust&&(t+=(/\?/.test(t)?"&":"?")+(new Date).getTime()),n.label=1;case 1:return n.trys.push([1,3,,4]),[4,C(t,i.fetchRequestInit,(function(t){var e=t.res,n=t.result;return r||(r=e.headers.get("Content-Type")||""),function(t){return t.split(/,/)[1]}(n)}))];case 2:return u=n.sent(),o=x(u,r),[3,4];case 3:return c=n.sent(),o=i.imagePlaceholder||"",a="Failed to fetch resource: ".concat(t),c&&(a="string"==typeof c?c:c.message),a&&console.warn(a),[3,4];case 4:return P[e]=o,[2,o]}}))}))}function T(t){return e(this,void 0,void 0,(function(){var e;return n(this,(function(n){return"data:,"===(e=t.toDataURL())?[2,t.cloneNode(!1)]:[2,h(e)]}))}))}function A(t,r){return e(this,void 0,void 0,(function(){var e,i,o,u;return n(this,(function(n){switch(n.label){case 0:return t.currentSrc?(e=document.createElement("canvas"),i=e.getContext("2d"),e.width=t.clientWidth,e.height=t.clientHeight,null==i||i.drawImage(t,0,0,e.width,e.height),[2,h(e.toDataURL())]):(o=t.poster,u=S(o),[4,R(o,u,r)]);case 1:return[2,h(n.sent())]}}))}))}function k(t,r){var i;return e(this,void 0,void 0,(function(){return n(this,(function(e){switch(e.label){case 0:return e.trys.push([0,3,,4]),(null===(i=null==t?void 0:t.contentDocument)||void 0===i?void 0:i.body)?[4,I(t.contentDocument.body,r,!0)]:[3,2];case 1:return[2,e.sent()];case 2:return[3,4];case 3:return e.sent(),[3,4];case 4:return[2,t.cloneNode(!1)]}}))}))}var L=function(t){return null!=t.tagName&&"SVG"===t.tagName.toUpperCase()};function N(t,e,n){return p(e,Element)&&(function(t,e,n){var r=e.style;if(r){var i=window.getComputedStyle(t);i.cssText?(r.cssText=i.cssText,r.transformOrigin=i.transformOrigin):c(n).forEach((function(n){var o=i.getPropertyValue(n);if("font-size"===n&&o.endsWith("px")){var u=Math.floor(parseFloat(o.substring(0,o.length-2)))-.1;o="".concat(u,"px")}p(t,HTMLIFrameElement)&&"display"===n&&"inline"===o&&(o="block"),"d"===n&&e.getAttribute("d")&&(o="path(".concat(e.getAttribute("d"),")")),r.setProperty(n,o,i.getPropertyPriority(n))}))}}(t,e,n),function(t,e,n){m(t,e,":before",n),m(t,e,":after",n)}(t,e,n),function(t,e){p(t,HTMLTextAreaElement)&&(e.innerHTML=t.value),p(t,HTMLInputElement)&&e.setAttribute("value",t.value)}(t,e),function(t,e){if(p(t,HTMLSelectElement)){var n=e,r=Array.from(n.children).find((function(e){return t.value===e.getAttribute("value")}));r&&r.setAttribute("selected","")}}(t,e)),e}function I(t,r,i){return e(this,void 0,void 0,(function(){return n(this,(function(u){return i||!r.filter||r.filter(t)?[2,Promise.resolve(t).then((function(t){return function(t,r){return e(this,void 0,void 0,(function(){return n(this,(function(e){return p(t,HTMLCanvasElement)?[2,T(t)]:p(t,HTMLVideoElement)?[2,A(t,r)]:p(t,HTMLIFrameElement)?[2,k(t,r)]:[2,t.cloneNode(L(t))]}))}))}(t,r)})).then((function(i){return function(t,r,i){var u,c;return e(this,void 0,void 0,(function(){var e;return n(this,(function(n){switch(n.label){case 0:return L(r)?[2,r]:(e=[],0===(e=null!=(a=t).tagName&&"SLOT"===a.tagName.toUpperCase()&&t.assignedNodes?o(t.assignedNodes()):p(t,HTMLIFrameElement)&&(null===(u=t.contentDocument)||void 0===u?void 0:u.body)?o(t.contentDocument.body.childNodes):o((null!==(c=t.shadowRoot)&&void 0!==c?c:t).childNodes)).length||p(t,HTMLVideoElement)?[2,r]:[4,e.reduce((function(t,e){return t.then((function(){return I(e,i)})).then((function(t){t&&r.appendChild(t)}))}),Promise.resolve())]);case 1:return n.sent(),[2,r]}var a}))}))}(t,i,r)})).then((function(e){return N(t,e,r)})).then((function(t){return function(t,r){return e(this,void 0,void 0,(function(){var e,i,o,u,c,a,s,l,f,h,d,v,p;return n(this,(function(n){switch(n.label){case 0:if(0===(e=t.querySelectorAll?t.querySelectorAll("use"):[]).length)return[2,t];i={},p=0,n.label=1;case 1:return p<e.length?(o=e[p],(u=o.getAttribute("xlink:href"))?(c=t.querySelector(u),a=document.querySelector(u),c||!a||i[u]?[3,3]:(s=i,l=u,[4,I(a,r,!0)])):[3,3]):[3,4];case 2:s[l]=n.sent(),n.label=3;case 3:return p++,[3,1];case 4:if((f=Object.values(i)).length){for(h="http://www.w3.org/1999/xhtml",(d=document.createElementNS(h,"svg")).setAttribute("xmlns",h),d.style.position="absolute",d.style.width="0",d.style.height="0",d.style.overflow="hidden",d.style.display="none",v=document.createElementNS(h,"defs"),d.appendChild(v),p=0;p<f.length;p++)v.appendChild(f[p]);t.appendChild(d)}return[2,t]}}))}))}(t,r)}))]:[2,null]}))}))}var D=/url\((['"]?)([^'"]+?)\1\)/g,H=/url\([^)]+\)\s*format\((["']?)([^"']+)\1\)/g,M=/src:\s*(?:url\([^)]+\)\s*format\([^)]+\)[,;]\s*)+/g;function F(t,r,i,o,u){return e(this,void 0,void 0,(function(){var e,c,a,s;return n(this,(function(n){switch(n.label){case 0:return n.trys.push([0,5,,6]),e=i?function(t,e){if(t.match(/^[a-z]+:\/\//i))return t;if(t.match(/^\/\//))return window.location.protocol+t;if(t.match(/^[a-z]+:/i))return t;var n=document.implementation.createHTMLDocument(),r=n.createElement("base"),i=n.createElement("a");return n.head.appendChild(r),n.body.appendChild(i),e&&(r.href=e),i.href=t,i.href}(r,i):r,c=S(r),a=void 0,u?[4,u(e)]:[3,2];case 1:return s=n.sent(),a=x(s,c),[3,4];case 2:return[4,R(e,c,o)];case 3:a=n.sent(),n.label=4;case 4:return[2,t.replace((l=r,f=l.replace(/([.*+?^${}()|\[\]\/\\])/g,"\\$1"),new RegExp("(url\\(['\"]?)(".concat(f,")(['\"]?\\))"),"g")),"$1".concat(a,"$3"))];case 5:return n.sent(),[3,6];case 6:return[2,t]}var l,f}))}))}function V(t){return-1!==t.search(D)}function q(t,r,i){return e(this,void 0,void 0,(function(){var e,o;return n(this,(function(n){return V(t)?(e=function(t,e){var n=e.preferredFontFormat;return n?t.replace(M,(function(t){for(;;){var e=H.exec(t)||[],r=e[0],i=e[2];if(!i)return"";if(i===n)return"src: ".concat(r,";")}})):t}(t,i),o=function(t){var e=[];return t.replace(D,(function(t,n,r){return e.push(r),t})),e.filter((function(t){return!E(t)}))}(e),[2,o.reduce((function(t,e){return t.then((function(t){return F(t,e,r,i)}))}),Promise.resolve(e))]):[2,t]}))}))}function U(t,r,i){var o;return e(this,void 0,void 0,(function(){var e,u;return n(this,(function(n){switch(n.label){case 0:return(e=null===(o=r.style)||void 0===o?void 0:o.getPropertyValue(t))?[4,q(e,null,i)]:[3,2];case 1:return u=n.sent(),r.style.setProperty(t,u,r.style.getPropertyPriority(t)),[2,!0];case 2:return[2,!1]}}))}))}function j(t,r){return e(this,void 0,void 0,(function(){var e,i;return n(this,(function(n){switch(n.label){case 0:return[4,U("background",t,r)];case 1:return n.sent()?[3,3]:[4,U("background-image",t,r)];case 2:n.sent(),n.label=3;case 3:return[4,U("mask",t,r)];case 4:return(i=n.sent())?[3,6]:[4,U("-webkit-mask",t,r)];case 5:i=n.sent(),n.label=6;case 6:return(e=i)?[3,8]:[4,U("mask-image",t,r)];case 7:e=n.sent(),n.label=8;case 8:return e?[3,10]:[4,U("-webkit-mask-image",t,r)];case 9:n.sent(),n.label=10;case 10:return[2]}}))}))}function O(t,r){return e(this,void 0,void 0,(function(){var e,i,o;return n(this,(function(n){switch(n.label){case 0:return(e=p(t,HTMLImageElement))&&!E(t.src)||p(t,SVGImageElement)&&!E(t.href.baseVal)?[4,R(i=e?t.src:t.href.baseVal,S(i),r)]:[2];case 1:return o=n.sent(),[4,new Promise((function(n,i){t.onload=n,t.onerror=r.onImageErrorHandler?function(){for(var t=[],e=0;e<arguments.length;e++)t[e]=arguments[e];try{n(r.onImageErrorHandler.apply(r,t))}catch(t){i(t)}}:i;var u=t;u.decode&&(u.decode=n),"lazy"===u.loading&&(u.loading="eager"),e?(t.srcset="",t.src=o):t.href.baseVal=o}))];case 2:return n.sent(),[2]}}))}))}function B(t,r){return e(this,void 0,void 0,(function(){var e,i;return n(this,(function(n){switch(n.label){case 0:return e=o(t.childNodes),i=e.map((function(t){return z(t,r)})),[4,Promise.all(i).then((function(){return t}))];case 1:return n.sent(),[2]}}))}))}function z(t,r){return e(this,void 0,void 0,(function(){return n(this,(function(e){switch(e.label){case 0:return p(t,Element)?[4,j(t,r)]:[3,4];case 1:return e.sent(),[4,O(t,r)];case 2:return e.sent(),[4,B(t,r)];case 3:e.sent(),e.label=4;case 4:return[2]}}))}))}var W={};function $(t){return e(this,void 0,void 0,(function(){var e,r;return n(this,(function(n){switch(n.label){case 0:return null!=(e=W[t])?[2,e]:[4,fetch(t)];case 1:return[4,n.sent().text()];case 2:return r=n.sent(),e={url:t,cssText:r},W[t]=e,[2,e]}}))}))}function G(t,r){return e(this,void 0,void 0,(function(){var i,o,u,c,a=this;return n(this,(function(s){return i=t.cssText,o=/url\(["']?([^"')]+)["']?\)/g,u=i.match(/url\([^)]+\)/g)||[],c=u.map((function(u){return e(a,void 0,void 0,(function(){var e;return n(this,(function(n){return(e=u.replace(o,"$1")).startsWith("https://")||(e=new URL(e,t.url).href),[2,C(e,r.fetchRequestInit,(function(t){var e=t.result;return i=i.replace(u,"url(".concat(e,")")),[u,e]}))]}))}))})),[2,Promise.all(c).then((function(){return i}))]}))}))}function _(t){if(null==t)return[];for(var e=[],n=t.replace(/(\/\*[\s\S]*?\*\/)/gi,""),r=new RegExp("((@.*?keyframes [\\s\\S]*?){([\\s\\S]*?}\\s*?)})","gi");;){if(null===(u=r.exec(n)))break;e.push(u[0])}n=n.replace(r,"");for(var i=/@import[\s\S]*?url\([^)]*\)[\s\S]*?;/gi,o=new RegExp("((\\s*?(?:\\/\\*[\\s\\S]*?\\*\\/)?\\s*?@media[\\s\\S]*?){([\\s\\S]*?)}\\s*?})|(([\\s\\S]*?){([\\s\\S]*?)})","gi");;){var u;if(null===(u=i.exec(n))){if(null===(u=o.exec(n)))break;i.lastIndex=o.lastIndex}else o.lastIndex=i.lastIndex;e.push(u[0])}return e}function J(t,r){return e(this,void 0,void 0,(function(){var e,i;return n(this,(function(n){return e=[],i=[],t.forEach((function(e){if("cssRules"in e)try{o(e.cssRules||[]).forEach((function(t,n){if(t.type===CSSRule.IMPORT_RULE){var o=n+1,u=$(t.href).then((function(t){return G(t,r)})).then((function(t){return _(t).forEach((function(t){try{e.insertRule(t,t.startsWith("@import")?o+=1:e.cssRules.length)}catch(e){console.error("Error inserting rule from remote css",{rule:t,error:e})}}))})).catch((function(t){console.error("Error loading remote css",t.toString())}));i.push(u)}}))}catch(o){var n=t.find((function(t){return null==t.href}))||document.styleSheets[0];null!=e.href&&i.push($(e.href).then((function(t){return G(t,r)})).then((function(t){return _(t).forEach((function(t){n.insertRule(t,n.cssRules.length)}))})).catch((function(t){console.error("Error loading remote stylesheet",t)}))),console.error("Error inlining remote css file",o)}})),[2,Promise.all(i).then((function(){return t.forEach((function(t){if("cssRules"in t)try{o(t.cssRules||[]).forEach((function(t){e.push(t)}))}catch(e){console.error("Error while reading CSS rules from ".concat(t.href),e)}})),e}))]}))}))}function Q(t){return t.filter((function(t){return t.type===CSSRule.FONT_FACE_RULE})).filter((function(t){return V(t.style.getPropertyValue("src"))}))}function X(t,r){return e(this,void 0,void 0,(function(){return n(this,(function(e){switch(e.label){case 0:if(null==t.ownerDocument)throw new Error("Provided element is not within a Document");return[4,J(o(t.ownerDocument.styleSheets),r)];case 1:return[2,Q(e.sent())]}}))}))}function K(t){return t.trim().replace(/["']/g,"")}function Y(t,r){return e(this,void 0,void 0,(function(){var e,i;return n(this,(function(n){switch(n.label){case 0:return[4,X(t,r)];case 1:return e=n.sent(),i=function(t){var e=new Set;return function t(n){(n.style.fontFamily||getComputedStyle(n).fontFamily).split(",").forEach((function(t){e.add(K(t))})),Array.from(n.children).forEach((function(e){e instanceof HTMLElement&&t(e)}))}(t),e}(t),[4,Promise.all(e.filter((function(t){return i.has(K(t.style.fontFamily))})).map((function(t){var e=t.parentStyleSheet?t.parentStyleSheet.href:null;return q(t.cssText,e,r)})))];case 2:return[2,n.sent().join("\n")]}}))}))}function Z(t,r){return e(this,void 0,void 0,(function(){var e,i,o,u,c;return n(this,(function(n){switch(n.label){case 0:return null==r.fontEmbedCSS?[3,1]:(i=r.fontEmbedCSS,[3,5]);case 1:return r.skipFonts?(o=null,[3,4]):[3,2];case 2:return[4,Y(t,r)];case 3:o=n.sent(),n.label=4;case 4:i=o,n.label=5;case 5:return(e=i)&&(u=document.createElement("style"),c=document.createTextNode(e),u.appendChild(c),t.firstChild?t.insertBefore(u,t.firstChild):t.appendChild(u)),[2]}}))}))}function tt(t,r){return void 0===r&&(r={}),e(this,void 0,void 0,(function(){var e,i,o,u;return n(this,(function(n){switch(n.label){case 0:return e=s(t,r),i=e.width,o=e.height,[4,I(t,r,!0)];case 1:return[4,Z(u=n.sent(),r)];case 2:return n.sent(),[4,z(u,r)];case 3:return n.sent(),function(t,e){var n=t.style;e.backgroundColor&&(n.backgroundColor=e.backgroundColor),e.width&&(n.width="".concat(e.width,"px")),e.height&&(n.height="".concat(e.height,"px"));var r=e.style;null!=r&&Object.keys(r).forEach((function(t){n[t]=r[t]}))}(u,r),[4,v(u,i,o)];case 4:return[2,n.sent()]}}))}))}function et(t,r){return void 0===r&&(r={}),e(this,void 0,void 0,(function(){var e,i,o,u,c,a,f,d,v;return n(this,(function(n){switch(n.label){case 0:return e=s(t,r),i=e.width,o=e.height,[4,tt(t,r)];case 1:return[4,h(n.sent())];case 2:return u=n.sent(),c=document.createElement("canvas"),a=c.getContext("2d"),f=r.pixelRatio||function(){var t,e;try{e=process}catch(t){}var n=e&&e.env?e.env.devicePixelRatio:null;return n&&(t=parseInt(n,10),Number.isNaN(t)&&(t=1)),t||window.devicePixelRatio||1}(),d=r.canvasWidth||i,v=r.canvasHeight||o,c.width=d*f,c.height=v*f,r.skipAutoScale||function(t){(t.width>l||t.height>l)&&(t.width>l&&t.height>l?t.width>t.height?(t.height*=l/t.width,t.width=l):(t.width*=l/t.height,t.height=l):t.width>l?(t.height*=l/t.width,t.width=l):(t.width*=l/t.height,t.height=l))}(c),c.style.width="".concat(d),c.style.height="".concat(v),r.backgroundColor&&(a.fillStyle=r.backgroundColor,a.fillRect(0,0,c.width,c.height)),a.drawImage(u,0,0,c.width,c.height),[2,c]}}))}))}t.getFontEmbedCSS=function(t,r){return void 0===r&&(r={}),e(this,void 0,void 0,(function(){return n(this,(function(e){return[2,Y(t,r)]}))}))},t.toBlob=function(t,r){return void 0===r&&(r={}),e(this,void 0,void 0,(function(){return n(this,(function(e){switch(e.label){case 0:return[4,et(t,r)];case 1:return[4,f(e.sent())];case 2:return[2,e.sent()]}}))}))},t.toCanvas=et,t.toJpeg=function(t,r){return void 0===r&&(r={}),e(this,void 0,void 0,(function(){return n(this,(function(e){switch(e.label){case 0:return[4,et(t,r)];case 1:return[2,e.sent().toDataURL("image/jpeg",r.quality||1)]}}))}))},t.toPixelData=function(t,r){return void 0===r&&(r={}),e(this,void 0,void 0,(function(){var e,i,o,u;return n(this,(function(n){switch(n.label){case 0:return e=s(t,r),i=e.width,o=e.height,[4,et(t,r)];case 1:return u=n.sent(),[2,u.getContext("2d").getImageData(0,0,i,o).data]}}))}))},t.toPng=function(t,r){return void 0===r&&(r={}),e(this,void 0,void 0,(function(){return n(this,(function(e){switch(e.label){case 0:return[4,et(t,r)];case 1:return[2,e.sent().toDataURL()]}}))}))},t.toSvg=tt}));
+
+    function stripLeadingEmoji(str) {
+        return String(str || '').replace(/^\s*#\s+/, '').replace(/^[\s\uFE0F\u200D]*(?:[\u2600-\u27BF]|[\uD83C-\uDBFF][\uDC00-\uDFFF])+[\s\uFE0F\u200D]*/g, '').trim();
+    }
+
+    function safeName(title, mode, seq) {
+        var clean = stripLeadingEmoji(String(title || '').replace(/==/g, '')) || 'Sơ đồ tư duy';
+        var base = clean.normalize('NFC')
+            .replace(/[<>:"/\\|?*\x00-\x1f]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 80)
+            .replace(/[. ]+$/g, '') || 'Sơ đồ tư duy';
+        var n = Math.max(1, parseInt(seq, 10) || 1);
+        var prefix = String(n).padStart(2, '0') + (mode === 'student' ? ' HS ' : ' GV ');
+        return prefix + base + '.png';
+    }
+
+    function ensureTrailingDot(raw) {
+        var t = String(raw || '').trim();
+        if (!t) return '';
+        return /[.!?:;…]$/.test(t) ? t : t + '.';
+    }
+
+    function parseInput(md) {
+        var lines = String(md || '').replace(/\r\n?/g, '\n').split('\n');
+        var isExam = lines.some(function (l) { return /^Câu\s+\d+\s*[.:]/i.test(l.trim()); });
+        var model = { title: '', cards: [], isExam: isExam };
+        var card = null;
+
+        lines.forEach(function (raw, rowIdx) {
+            var line = raw.replace(/\u00a0/g, ' ').replace(/\t/g, '  ');
+            var t = line.trim();
+            if (!t) return;
+            if (/^#\s/.test(t)) {
+                if (!model.title) model.title = t.replace(/^#\s+/, '');
+                return;
+            }
+            if (isExam) {
+                var qm = t.match(/^(Câu\s+\d+\s*[.:])\s*(.*)$/i);
+                if (qm) {
+                    card = { type: 'exam', title: qm[1].replace(/[.:]$/, ''), stem: qm[2], rowIdx: rowIdx, lines: [] };
+                    model.cards.push(card);
+                    return;
+                }
+                var om = t.match(/^(\*?)\s*([a-dA-D])\s*[.)]\s*(.+)$/);
+                if (om && card) {
+                    card.lines.push({ isOpt: true, ok: om[1] === '*', letter: om[2].toLowerCase(), text: om[3], rowIdx: rowIdx });
+                    return;
+                }
+                if (/^Lời giải\s*:/i.test(t)) return;
+                if (card) card.lines.push({ isOpt: false, text: t, rowIdx: rowIdx });
+            } else {
+                if (/^##\s/.test(t)) {
+                    card = { type: 'mm', title: t.replace(/^##\s+/, ''), rowIdx: rowIdx, lines: [] };
+                    model.cards.push(card);
+                    return;
+                }
+                if (!card) return;
+                var bullet = line.match(/^(\s*)[-*]\s+(.*)$/);
+                var indent = (line.match(/^ */) || [''])[0].length;
+                card.lines.push({
+                    text: bullet ? bullet[2] : t,
+                    depth: Math.max(0, Math.floor(indent / 2)),
+                    rowIdx: rowIdx
+                });
+            }
+        });
+
+        if (!model.title && isExam) model.title = '🧪 LUYỆN TẬP ĐÚNG / SAI & TỰ LUẬN';
+        return model;
+    }
+
+    function renderMathText(text) {
+        var out = '', last = 0, m;
+        var re = /\$([^$\n]+)\$/g;
+        while ((m = re.exec(text)) !== null) {
+            out += escapeHtml(text.slice(last, m.index));
+            try {
+                if (global.katex && typeof global.katex.renderToString === 'function') {
+                    out += '<span class="vp-math" contenteditable="false">' +
+                        global.katex.renderToString(m[1], { throwOnError: false, trust: false, output: 'htmlAndMathml' }) +
+                        '</span>';
+                } else {
+                    out += '<span class="vp-math">' + escapeHtml(m[1]) + '</span>';
+                }
+            } catch (e) {
+                out += '<span class="vp-math">' + escapeHtml(m[0]) + '</span>';
+            }
+            last = re.lastIndex;
+        }
+        return out + escapeHtml(text.slice(last));
+    }
+
+    function lineEndsWithBlank(text) {
+        return /==(?:(?!==)[^\r\n])+==\s*[.]?\s*$/.test(String(text || '').trim());
+    }
+
+    function renderInline(text, student, colorState, cardIdx, lineIdx) {
+        var trimmed = String(text || '').trim();
+        var endsBlank = student && lineEndsWithBlank(trimmed);
+        var src = (student && !endsBlank) ? ensureTrailingDot(trimmed) : trimmed;
+        var out = '', last = 0, m;
+        var re = /==((?:(?!==)[^\r\n])+)==/g;
+        var matches = [];
+        while ((m = re.exec(src)) !== null) matches.push({ idx: m.index, end: re.lastIndex, inner: m[1] });
+        var hasEnd = false;
+        matches.forEach(function (item, i) {
+            out += renderMathText(src.slice(last, item.idx));
+            var color = COLORS[colorState.index++ % 3];
+            if (student) {
+                var blankId = cardIdx + ':' + lineIdx + ':' + i;
+                var custom = state.blankWidths[blankId];
+                var isAutoEnd = endsBlank && (i === matches.length - 1) && !custom;
+                var isEnd = custom === 'end' || isAutoEnd;
+                if (isEnd) hasEnd = true;
+                var plain = item.inner.replace(/\$[^$]*\$/g, 'FORMULA');
+                var defW = Math.max(3.2, Math.min(13, plain.length * 0.44 * state.blankScale));
+                var w = typeof custom === 'number' ? custom : defW;
+                var selCls = state.selectedBlankId === blankId ? ' vp-blank-selected' : '';
+                out += '<span class="vp-blank' + (isEnd ? ' vp-blank-end' : '') + selCls + '" data-blank-id="' + blankId + '" data-def-w="' + w.toFixed(1) + '" style="width:' + w.toFixed(1) + 'em"></span>';
+                if (isEnd && src.slice(item.end).trim().length > 0) {
+                    out += '<span class="vp-blank-break"></span>';
+                }
+            } else {
+                out += '<span class="vp-key" style="color:' + color + '">' + renderMathText(item.inner) + '</span>';
+            }
+            last = item.end;
+        });
+        return { html: out + renderMathText(src.slice(last)), hasEnd: hasEnd };
+    }
+
+    function renderWritingRows(cardIdx, lineIdx, student) {
+        if (!student) return '';
+        var prefix = cardIdx + ':' + lineIdx + ':';
+        var total = 0;
+        Object.keys(state.blankRows).forEach(function (k) {
+            if (k.indexOf(prefix) === 0) total += (state.blankRows[k] || 0);
+        });
+        if (!total) return '';
+        var rules = '';
+        for (var i = 0; i < total; i++) rules += '<span class="vp-writing-rule"></span>';
+        return '<div class="vp-writing-lines">' + rules + '</div>';
+    }
+
+    function renderCardHtml(c, idx, student, colorState) {
+        var selCls = idx === state.selectedBranch ? ' vp-selected' : '';
+        var fs = student ? state.studentBodyFs : state.teacherBodyFs;
+        var titleFs = student ? Math.round(fs * 1.23) : Math.round(fs * 1.15);
+        var parentFs = student ? Math.round(fs * 1.077) : Math.round(fs * 1.075);
+        var h = '<section class="vp-box vp-shape' + selCls + '" data-branch="' + (idx + 1) + '" style="--frame:' + FRAMES[idx] + '">';
+        h += '<div class="vp-box-title"' + (c.type === 'mm' ? ' data-row="' + c.rowIdx + '"' : '') + (!student && c.type === 'mm' ? ' contenteditable="true" data-prefix="## "' : '') + '>' + renderMathText(c.title) + '</div>';
+        h += '<div class="vp-lines" style="font-size:' + fs + 'px">';
+        if (c.type === 'exam') {
+            if (c.stem) {
+                var stemTxt = student ? ensureTrailingDot(c.stem) : c.stem;
+                h += '<div class="vp-line" data-depth="0" data-row="' + c.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + ';margin-bottom:0.45em"' + (!student ? ' contenteditable="true" data-prefix="' + escapeHtml(c.title) + '. "' : '') + '>' + renderMathText(stemTxt) + '</div>';
+            }
+            c.lines.forEach(function (l, li) {
+                var r = renderInline(l.text, student, colorState, idx, li);
+                if (l.isOpt) {
+                    var lblCls = !student ? (l.ok ? 'mm-tf-lbl is-true' : 'mm-tf-lbl is-false') : 'mm-tf-lbl';
+                    var pfx = (l.ok ? '*' : '') + l.letter + ') ';
+                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + '"' + (!student ? ' contenteditable="true" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student);
+                } else {
+                    var jCls0 = state.lineAligns[l.rowIdx] === 'justify' ? ' mm-justify' : '';
+                    h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jCls0 + '" data-depth="0" data-row="' + l.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + '"' + (!student ? ' contenteditable="true" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
+                }
+            });
+        } else {
+            c.lines.forEach(function (l, li) {
+                var r = renderInline(l.text, student, colorState, idx, li);
+                var lineFs = l.depth === 0 ? parentFs : fs;
+                var lineFw = student ? 400 : (l.depth === 0 ? 700 : 400);
+                var jClsN = state.lineAligns[l.rowIdx] === 'justify' ? ' mm-justify' : '';
+                h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="margin-left:' + (l.depth * 1.1) + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + '"' + (!student ? ' contenteditable="true" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
+            });
+        }
+        h += '</div>';
+        if (state.branchImages[idx]) {
+            var wp = state.branchImages[idx].widthPct || 100;
+            h += '<div class="mm-branch-img-wrap"><img src="' + state.branchImages[idx].src + '" style="width:' + wp + '%" alt="Ảnh khung ' + (idx + 1) + '"></div>';
+        }
+        h += '</section>';
+        return h;
+    }
+
+    function syncInlineEdit(rowIdx, newText, prefix) {
+        var ed = $('#markdown-editor');
+        if (!ed) return;
+        var lines = ed.value.replace(/\r\n?/g, '\n').split('\n');
+        if (lines[rowIdx] === undefined) return;
+        var indent = (lines[rowIdx].match(/^(\s*)/) || ['', ''])[1];
+        lines[rowIdx] = indent + (prefix || '') + String(newText || '').trim();
+        ed.value = lines.join('\n');
+        saveDraft();
+        renderStage(true);
+        fitStage();
+    }
+
+    function renderStage(student) {
+        var container = $(student ? '#mm-student-stage-inner' : '#mm-teacher-stage-inner');
+        var ed = $('#markdown-editor');
+        if (!container || !ed) return;
+        var model = parseInput(ed.value);
+        var colorState = { index: 0 };
+        var fontStack = '"' + state.font + '", "Segoe UI", Arial, sans-serif';
+        container.style.fontFamily = fontStack;
+        var stEl = $(student ? '#mm-stage-student' : '#mm-stage-teacher');
+        if (stEl && stEl.style && typeof stEl.style.setProperty === 'function') {
+            stEl.style.setProperty('--mm-stage-font', fontStack);
+            stEl.style.setProperty('--mm-main-title-fs', state.teacherMainTitleFs + 'px');
+            stEl.style.setProperty('--mm-card-title-fs', state.teacherCardTitleFs + 'px');
+            stEl.style.setProperty('--mm-stu-main-title-fs', state.studentMainTitleFs + 'px');
+            stEl.style.setProperty('--mm-stu-card-title-fs', state.studentCardTitleFs + 'px');
+        } else if (stEl && stEl.style) {
+            stEl.style['--mm-stage-font'] = fontStack;
+        }
+
+        var cards = model.cards.slice(0, 4);
+        var split = (state.splitOverride && cards.length === 3) ? state.splitOverride : (cards.length <= 2 ? 1 : 2);
+        var leftCards = cards.slice(0, split);
+        var rightCards = cards.slice(split);
+        var cols = (student && cards.length === 1) ? [cards, []] : (state.swapCols ? [rightCards, leftCards] : [leftCards, rightCards]);
+
+        var bFs = student ? Math.round(state.studentBodyFs * 1.54) : Math.round(state.teacherBodyFs * 1.1);
+        var html = '<div class="vp-banner vp-shape">' + renderMathText(model.title.replace(/==/g, '') || 'Sơ đồ tư duy') + '</div>';
+        html += '<div class="vp-cols-grid' + (student && cards.length === 1 ? ' single-col' : '') + '">';
+        html += '<div class="vp-col-stack">' + cols[0].map(function (c) { return renderCardHtml(c, cards.indexOf(c), student, colorState); }).join('') + '</div>';
+        if (student) {
+            $all('#mm-student-stage-inner .vp-blank').forEach(function (bl) {
+                bl.addEventListener('click', function (ev) {
+                    var rParent = bl.closest ? bl.closest('[data-row]') : null;
+                    if (rParent && modalEl._syncRow) modalEl._syncRow(parseInt(rParent.getAttribute('data-row'), 10));
+                    ev.stopPropagation();
+                    state.selectedBlankId = bl.dataset.blankId;
+                    var info = $('#mm-selected-blank-info');
+                    if (info) info.textContent = '✓ Đang chọn ô #' + state.selectedBlankId;
+                    renderStage(true);
+                    fitStage();
+                });
+            });
+        }
+        if (!student) {
+            html += '<div class="vp-cam-col"></div>';
+        }
+        if (!(student && cards.length === 1)) {
+            html += '<div class="vp-col-stack">' + cols[1].map(function (c) { return renderCardHtml(c, cards.indexOf(c), student, colorState); }).join('') + '</div>';
+        }
+        html += '</div>';
+        container.innerHTML = html;
+
+        $all((student ? '#mm-student-stage-inner' : '#mm-teacher-stage-inner') + ' .vp-box').forEach(function (box) {
+            box.addEventListener('click', function () {
+                selectBranch(Number(box.dataset.branch) - 1);
+            });
+        });
+
+        if (student) {
+            $all('#mm-student-stage-inner .vp-blank').forEach(function (bl) {
+                bl.addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    state.selectedBlankId = bl.dataset.blankId;
+                    var info = $('#mm-selected-blank-info');
+                    if (info) info.textContent = '✓ Đang chọn ô #' + state.selectedBlankId;
+                    renderStage(true);
+                    fitStage();
+                });
+            });
+        }
+        if (!student) {
+            $all('#mm-teacher-stage-inner [contenteditable="true"]').forEach(function (el) {
+                el.addEventListener('input', function () {
+                    syncInlineEdit(Number(el.dataset.row), el.innerText || el.textContent, el.dataset.prefix);
+                });
+            });
+        }
+    }
+
+    function fitStage() {
+        var scrollBox = $('.vp-canvas-scroll');
+        var vp = $('.vp-viewport');
+        var scaler = $('#mm-stage-scaler');
+        var st = $(state.tab === 'teacher' ? '#mm-stage-teacher' : '#mm-stage-student');
+        if (!vp || !scaler || !st) return;
+        var w = state.tab === 'teacher' ? 1920 : 794;
+        var h = state.tab === 'teacher' ? 1080 : Math.max(220, st.scrollHeight || 400);
+        var availW = Math.max(240, ((scrollBox && scrollBox.clientWidth) || vp.clientWidth || 800) - 28);
+        var availH = Math.max(200, ((scrollBox && scrollBox.clientHeight) || vp.clientHeight || 560) - 56);
+        var scale = state.tab === 'teacher' ? Math.min(availW / w, availH / h, 1) : Math.min(availW / w, 1);
+        scaler.style.width = w + 'px';
+        scaler.style.height = h + 'px';
+        scaler.style.transform = 'scale(' + scale.toFixed(4) + ')';
+        vp.style.height = Math.ceil(h * scale) + 'px';
+        scaler.style.marginRight = '-' + Math.round(w * (1 - scale)) + 'px';
+        scaler.style.marginBottom = '-' + Math.round(h * (1 - scale)) + 'px';
+        var zl = $('#mm-zoom-label');
+        if (zl) {
+            zl.textContent = 'Vừa khít Cột 3 (' + Math.round(scale * 100) + '% · ' + w + '×' + h + ')';
+        }
+    }
+
+    function checkTeacherOverflow() {
+        var st = $('#mm-stage-teacher');
+        var warn = $('#mm-overflow-warn');
+        if (!st) return false;
+        if (state.tab !== 'teacher') {
+            st.classList.remove('is-overflow');
+            if (warn) warn.classList.add('hidden');
+            return false;
+        }
+        var over = (st.scrollHeight || 0) > 1082;
+        if (!over && typeof st.getBoundingClientRect === 'function') {
+            var stRect = st.getBoundingClientRect();
+            if (stRect && stRect.height > 0) {
+                $all('#mm-stage-teacher .vp-box').forEach(function (box) {
+                    var br = box.getBoundingClientRect ? box.getBoundingClientRect() : null;
+                    if (br && br.bottom > stRect.bottom + 2) over = true;
+                });
+            }
+        }
+        st.classList.toggle('is-overflow', over);
+        if (warn) warn.classList.toggle('hidden', !over);
+        return over;
+    }
+
+    function renderAll() {
+        renderStage(false);
+        renderStage(true);
+        fitStage();
+        checkTeacherOverflow();
+    }
+
+    function selectBranch(idx) {
+        state.selectedBranch = Math.max(0, Math.min(3, idx));
+        $all('.vp-box').forEach(function (el) {
+            el.classList.toggle('vp-selected', Number(el.dataset.branch) - 1 === state.selectedBranch);
+        });
+        var imgCfg = state.branchImages[state.selectedBranch];
+        var wInp = $('#mm-img-w-input');
+        if (wInp) wInp.value = imgCfg ? (imgCfg.widthPct || 100) : 100;
+        setStatus('✓ Khung ' + (state.selectedBranch + 1) + (imgCfg ? ' (ảnh ' + imgCfg.widthPct + '%)' : ' · Ctrl+V dán ảnh'));
+    }
+
+    function saveDraft() {
+        try {
+            var ed = $('#markdown-editor');
+            if (ed && global.localStorage) global.localStorage.setItem(LS_DRAFT, ed.value);
+        } catch (e) {}
+    }
+
+    function recordHistory() {
+        var ed = $('#markdown-editor');
+        if (!ed) return;
+        var val = ed.value;
+        if (state.history[state.historyIdx] === val) return;
+        state.history = state.history.slice(0, state.historyIdx + 1);
+        state.history.push(val);
+        if (state.history.length > 50) state.history.shift();
+        state.historyIdx = state.history.length - 1;
+    }
+
+    function stepHistory(delta) {
+        var ed = $('#markdown-editor');
+        if (!ed) return;
+        var next = state.historyIdx + delta;
+        if (next < 0 || next >= state.history.length) {
+            showToast(delta < 0 ? 'Không còn thao tác để hoàn tác.' : 'Không còn thao tác để làm lại.', 'warning');
+            return;
+        }
+        state.historyIdx = next;
+        ed.value = state.history[next];
+        saveDraft();
+        renderAll();
+    }
+
+    function toggleHighlightSelection() {
+        var ed = $('#markdown-editor');
+        if (!ed) return;
+        var start = ed.selectionStart || 0;
+        var end = ed.selectionEnd || 0;
+        if (start === end) {
+            showToast('Bôi đen cụm từ cần tô sáng / tạo ô khuyết trước khi bấm Ctrl+H.', 'warning');
+            return;
+        }
+        var val = ed.value;
+        var sel = val.slice(start, end);
+        var wrapped = (sel.slice(0, 2) === '==' && sel.slice(-2) === '==')
+            ? sel.slice(2, -2)
+            : '==' + sel + '==';
+        ed.value = val.slice(0, start) + wrapped + val.slice(end);
+        recordHistory();
+        saveDraft();
+        renderAll();
+    }
+
+    function switchTab(tab) {
+        state.tab = tab === 'student' ? 'student' : 'teacher';
+        var btnT = $('#tab-btn-teacher'), btnS = $('#tab-btn-student');
+        var stT = $('#mm-stage-teacher'), stS = $('#mm-stage-student');
+        if (btnT) btnT.classList.toggle('active', state.tab === 'teacher');
+        if (btnS) btnS.classList.toggle('active', state.tab === 'student');
+        if (stT) stT.classList.toggle('hidden', state.tab !== 'teacher');
+        if (stS) stS.classList.toggle('hidden', state.tab !== 'student');
+        var stuPanel = $('#mm-student-blanks-panel');
+        if (stuPanel) stuPanel.classList.toggle('hidden', state.tab !== 'student');
+        var hsExtra = $('#mm-hs-extra-sec');
+        if (hsExtra) hsExtra.classList.toggle('hidden', state.tab !== 'student');
+        var bgBox = $('#mm-teacher-theme-box'), slBox = $('#mm-teacher-slogan-box');
+        if (bgBox) bgBox.classList.toggle('hidden', state.tab !== 'teacher');
+        if (slBox) slBox.classList.toggle('hidden', state.tab !== 'teacher');
+        var imgBox = $('#mm-teacher-img-box');
+        if (imgBox) imgBox.classList.toggle('hidden', state.tab !== 'teacher');
+        var fsInp = $('#mm-body-fs-input');
+        if (fsInp) fsInp.value = state.tab === 'teacher' ? state.teacherBodyFs : state.studentBodyFs;
+        var mtInp = $('#mm-main-title-fs-input');
+        if (mtInp) mtInp.value = state.tab === 'teacher' ? state.teacherMainTitleFs : state.studentMainTitleFs;
+        var ctInp = $('#mm-card-title-fs-input');
+        if (ctInp) ctInp.value = state.tab === 'teacher' ? state.teacherCardTitleFs : state.studentCardTitleFs;
+        checkTeacherOverflow();
+        var seqInp = $('#mm-export-seq');
+        if (seqInp) seqInp.value = state.tab === 'teacher' ? state.teacherSeq : state.studentSeq;
+        var presetSel = $('#mm-export-preset');
+        if (presetSel) presetSel.value = state.tab;
+        fitStage();
+    }
+
+    function buildFontEmbedCSS() {
+        var mmFonts = [
+            "Segoe UI",
+            "Arial",
+            "Calibri",
+            "Tahoma",
+            "Times New Roman"
+        ];
+        var parts = [];
+        mmFonts.forEach(function (f) {
+            var compact = f.replace(/\s+/g, "");
+            parts.push("@font-face{font-family:'" + f + "';font-style:normal;font-weight:400;src:local('" + f + "'),local('" + compact + "'),local('" + f + " Regular');}");
+            parts.push("@font-face{font-family:'" + f + "';font-style:normal;font-weight:700;src:local('" + f + " Bold'),local('" + compact + "-Bold'),local('" + f + "');}");
+        });
+        parts.push(".katex-mathml{display:none!important;}.hidden{display:none!important;}");
+        if (typeof global.OBS_FONT_CSS === "string" && global.OBS_FONT_CSS.trim()) {
+            parts.push(global.OBS_FONT_CSS);
+        }
+        try {
+            Array.prototype.slice.call(document.styleSheets || []).forEach(function (sheet) {
+                try {
+                    Array.prototype.slice.call(sheet.cssRules || []).forEach(function (rule) {
+                        if (rule.type === 5 && /KaTeX_/i.test(rule.cssText) && !/url\([^)]*\.woff2?\)/i.test(rule.cssText)) {
+                            parts.push(rule.cssText);
+                        }
+                    });
+                } catch (e) {}
+            });
+        } catch (e) {}
+        return parts.join("\n");
+    }
+
+    function cleanCloneForExport(stage, mode, w, h) {
+        var clone = stage.cloneNode(true);
+        clone.classList.remove("hidden");
+        clone.style.width = w + "px";
+        clone.style.height = h + "px";
+        clone.style.maxHeight = "none";
+        clone.style.transform = "none";
+        clone.style.margin = "0";
+        var fontStack = "\"" + state.font + "\", \"Segoe UI\", Arial, sans-serif";
+        clone.style.fontFamily = fontStack;
+        if (clone.style && typeof clone.style.setProperty === "function") {
+            clone.style.setProperty("--mm-stage-font", fontStack);
+            clone.style.setProperty("--mm-main-title-fs", state.teacherMainTitleFs + "px");
+            clone.style.setProperty("--mm-card-title-fs", state.teacherCardTitleFs + "px");
+            clone.style.setProperty("--mm-stu-main-title-fs", state.studentMainTitleFs + "px");
+            clone.style.setProperty("--mm-stu-card-title-fs", state.studentCardTitleFs + "px");
+        }
+        Array.prototype.slice.call(clone.querySelectorAll(".vp-selected, .vp-blank-selected, .mm-sync-active")).forEach(function (el) {
+            el.classList.remove("vp-selected", "vp-blank-selected", "mm-sync-active");
+        });
+        return clone;
+    }
+
+    function renderMinMapPngBlob(stage, mode, w, h, fontCSS) {
+        var holder = document.createElement("div");
+        holder.style.cssText = "position:fixed;left:0;top:0;width:" + w + "px;height:" + h + "px;opacity:0;pointer-events:none;z-index:-1;overflow:hidden;";
+        var clone = cleanCloneForExport(stage, mode, w, h);
+        holder.appendChild(clone);
+        (modalEl || document.body).appendChild(holder);
+
+        var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+        var imgsReady = Promise.all(Array.prototype.slice.call(clone.querySelectorAll("img")).map(function (img) {
+            return typeof img.decode === "function" ? img.decode().catch(function () {}) : Promise.resolve();
+        }));
+
+        function wait2Frames() {
+            if (typeof requestAnimationFrame !== "function") return Promise.resolve();
+            return new Promise(function (resolve) {
+                requestAnimationFrame(function () { requestAnimationFrame(resolve); });
+            });
+        }
+
+        return Promise.all([fontsReady, imgsReady]).then(wait2Frames).then(function () {
+            if (global.modernScreenshot && typeof global.modernScreenshot.domToBlob === "function") {
+                return global.modernScreenshot.domToBlob(clone, {
+                    width: w,
+                    height: h,
+                    scale: mode === "student" ? 2 : 1,
+                    backgroundColor: mode === "student" ? "#ffffff" : "#000000",
+                    font: { cssText: fontCSS },
+                    filter: function (node) {
+                        return !(node && node.classList && (node.classList.contains("katex-mathml") || node.classList.contains("vp-camera")));
+                    }
+                }).then(function (blob) {
+                    if (blob) return { blob: blob, dataUrl: null };
+                    throw new Error("modernScreenshot returned empty blob");
+                });
+            }
+            if (mmWin.htmlToImage && typeof mmWin.htmlToImage.toPng === "function") {
+                return mmWin.htmlToImage.toPng(clone, {
+                    width: w,
+                    height: h,
+                    pixelRatio: mode === "student" ? 2 : 1,
+                    skipAutoScale: true,
+                    backgroundColor: mode === "student" ? "#ffffff" : "#000000",
+                    fontEmbedCSS: fontCSS,
+                    filter: function (node) {
+                        return !(node && node.classList && (node.classList.contains("katex-mathml") || node.classList.contains("vp-camera")));
+                    }
+                }).then(function (dataUrl) {
+                    return { blob: null, dataUrl: dataUrl };
+                });
+            }
+            return { blob: null, dataUrl: null };
+        }).finally(function () {
+            try { holder.remove(); } catch (e) {}
+        });
+    }
+
+    function exportPng() {
+        if (state.busyExport) return Promise.resolve(null);
+        var ed = $("#markdown-editor");
+        var model = parseInput(ed ? ed.value : "");
+        var mode = state.tab;
+        var seq = mode === "student" ? state.studentSeq : state.teacherSeq;
+        var fileName = safeName(model.title, mode, seq);
+        var stage = $(mode === "student" ? "#mm-stage-student" : "#mm-stage-teacher");
+        if (!stage) return Promise.resolve(null);
+        state.busyExport = true;
+        setStatus("Đang xuất 1-1 " + fileName + "...");
+        var fontCSS = buildFontEmbedCSS();
+        var w = mode === "student" ? 794 : 1920;
+        var h = mode === "teacher" ? 1080 : Math.max(220, stage.scrollHeight || 400);
+
+        if (!(global.modernScreenshot && typeof global.modernScreenshot.domToBlob === "function") && !(mmWin.htmlToImage && typeof mmWin.htmlToImage.toPng === "function")) {
+            state.busyExport = false;
+            setStatus("✓ Chuẩn bị xong: " + fileName);
+            return Promise.resolve({ name: fileName, width: w, height: h, fontEmbedCSS: fontCSS });
+        }
+
+        return renderMinMapPngBlob(stage, mode, w, h, fontCSS).then(function (res) {
+            var a = document.createElement("a");
+            var objUrl = null;
+            if (res && res.blob && typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+                objUrl = URL.createObjectURL(res.blob);
+                a.href = objUrl;
+            } else if (res && res.dataUrl) {
+                a.href = res.dataUrl;
+            } else {
+                throw new Error("Không tạo được dữ liệu ảnh PNG");
+            }
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            if (objUrl) {
+                setTimeout(function () { try { URL.revokeObjectURL(objUrl); } catch (e) {} }, 2500);
+            }
+            if (mode === "student") state.studentSeq += 1;
+            else state.teacherSeq += 1;
+            var seqInp = $("#mm-export-seq");
+            if (seqInp) seqInp.value = mode === "student" ? state.studentSeq : state.teacherSeq;
+            setStatus("✓ Đã xuất 1-1: " + fileName);
+            showToast("Đã xuất " + fileName, "success");
+            return { name: fileName, width: w, height: h, fontEmbedCSS: fontCSS };
+        }).catch(function (err) {
+            setStatus("Lỗi xuất ảnh: " + ((err && err.message) || "Kiểm tra lại nội dung"));
+            showToast("Chưa xuất được PNG.", "error");
+            return null;
+        }).finally(function () {
+            state.busyExport = false;
+        });
+    }
+
+    function buildModal() {
+        if (modalEl) return modalEl;
+        modalEl = document.createElement('div');
+        modalEl.id = 'minmap-modal';
+        modalEl.innerHTML = [
+
+            '<div class="mm-main">',
+            '  <section class="mm-editor-col">',
+            '    <div class="mm-ed-toolbar compact">',
+            '      <button type="button" class="mm-tool-btn" id="btn-undo" title="Hoàn tác">↶</button>',
+            '      <button type="button" class="mm-tool-btn" id="btn-redo" title="Làm lại">↷</button>',
+            '      <button type="button" class="mm-tool-btn" id="btn-quick-paste" title="Dán từ clipboard">📋 Dán</button>',
+            '      <button type="button" class="mm-tool-btn accent" id="btn-content-icons" title="Kho Icon">✨ Icon</button>',
+            '      <button type="button" class="mm-tool-btn" id="btn-toggle-col2" title="Mở rộng / Thu gọn Cột 1">⇄</button>',
+            '      <button type="button" class="mm-tool-btn" id="btn-import-md" title="Mở tệp .md">📂 Mở</button>',
+            '      <button type="button" class="mm-tool-btn" id="btn-save-md" title="Lưu tệp .md">💾 Lưu</button>',
+            '      <button type="button" class="mm-tool-btn" id="btn-clear-content" title="Xóa toàn bộ" style="color:#fca5a5;border-color:rgba(239,68,68,.4)">🗑️</button>',
+            '      <div class="mm-ed-fs-group" title="Cỡ chữ Cột 1 (12px–22px)">',
+            '        <button type="button" class="mm-tool-btn" id="btn-ed-fs-down">A−</button>',
+            '        <span class="mm-ed-fs-badge" id="mm-ed-fs-val">13px</span>',
+            '        <button type="button" class="mm-tool-btn" id="btn-ed-fs-up">A+</button>',
+            '      </div>',
+            '      <button type="button" class="mm-tool-btn accent hidden" id="btn-toggle-highlight" aria-hidden="true">🎨</button>',
+            '      <input type="file" id="mm-import-file" accept=".md,.txt" class="hidden">',
+            '    </div>',
+            '    <div class="mm-icon-drawer hidden" id="mm-icon-drawer">',
+            '      <div class="mm-icon-head"><span>✨ Kho Icon Hóa học &amp; Sư phạm</span><button type="button" class="mm-tool-btn" id="mm-icon-close">Đóng</button></div>',
+            '      <div id="mm-icon-body"></div>',
+            '    </div>',
+            '    <div class="mm-ed-sync-bar hidden" id="mm-ed-sync-bar"></div>',
+            '    <div class="mm-ed-wrap">',
+            '      <div class="mm-ed-line-hl hidden" id="mm-ed-line-hl"></div>',
+            '      <textarea id="markdown-editor" spellcheck="false"></textarea>',
+            '    </div>',
+            '  </section>',
+            '  <section id="visual-preview">',
+            '    <div class="vp-topbar">',
+            '      <div class="vp-bar-group">',
+            '        <div class="vp-seg-tabs">',
+            '          <button type="button" class="vp-tab-btn active" id="tab-btn-teacher">🎬 GV</button>',
+            '          <button type="button" class="vp-tab-btn" id="tab-btn-student">📝 HS</button>',
+            '        </div>',
+            '        <div class="vp-pill-group">',
+            '          <select class="vp-select" id="mm-font-select" title="Phông chữ">',
+            '            <option value="Segoe UI" selected>Segoe UI</option>',
+            '            <option value="Arial">Arial</option>',
+            '            <option value="Calibri">Calibri</option>',
+            '            <option value="Tahoma">Tahoma</option>',
+            '            <option value="Times New Roman">Times New Roman</option>',
+            '          </select>',
+            '          <div class="vp-quick-fs" title="Cỡ chữ nội dung (px)">',
+            '            <span style="font-size:10px;color:#94a3b8;padding:0 2px">Chữ</span>',
+            '            <button type="button" class="vp-step-btn" id="mm-body-fs-dec">−</button>',
+            '            <input type="number" class="vp-num-input" id="mm-body-fs-input" min="12" max="48" value="40">',
+            '            <button type="button" class="vp-step-btn" id="mm-body-fs-inc">+</button>',
+            '          </div>',
+            '          <div class="vp-quick-fs" title="Cỡ chữ Tiêu đề Sơ đồ (px)">',
+            '            <span style="font-size:10px;color:#94a3b8;padding:0 2px">TĐ</span>',
+            '            <button type="button" class="vp-step-btn" id="mm-main-title-fs-dec">−</button>',
+            '            <input type="number" class="vp-num-input" id="mm-main-title-fs-input" min="18" max="52" value="38">',
+            '            <button type="button" class="vp-step-btn" id="mm-main-title-fs-inc">+</button>',
+            '          </div>',
+            '          <div class="vp-quick-fs" title="Cỡ chữ Tiêu đề Nhánh (px)">',
+            '            <span style="font-size:10px;color:#94a3b8;padding:0 2px">Nhánh</span>',
+            '            <button type="button" class="vp-step-btn" id="mm-card-title-fs-dec">−</button>',
+            '            <input type="number" class="vp-num-input" id="mm-card-title-fs-input" min="14" max="42" value="30">',
+            '            <button type="button" class="vp-step-btn" id="mm-card-title-fs-inc">+</button>',
+            '          </div>',
+            '          <span class="mm-overflow-badge hidden" id="mm-overflow-warn">⚠️ Tràn 1080px</span>',
+            '        </div>',
+            '        <div class="vp-pill-group" id="mm-teacher-slogan-box">',
+            '          <button type="button" class="vp-btn-sm on" id="mm-slogan-toggle">Slogan</button>',
+            '          <select class="vp-select" id="mm-slogan-theme-select" title="Nền Slogan">',
+            '            <option value="theme-aurora">Aurora</option>',
+            '            <option value="theme-emerald">Ngọc Lục Bảo</option>',
+            '            <option value="theme-pro">Dark Glass</option>',
+            '            <option value="theme-royal">Hoàng gia</option>',
+            '          </select>',
+            '        </div>',
+            '        <div class="vp-pill-group" id="mm-teacher-img-box" title="Ảnh khung đang chọn">',
+            '          <span style="font-size:11px">🖼️</span>',
+            '          <button type="button" class="vp-step-btn" id="mm-img-w-dec">−</button>',
+            '          <input type="number" class="vp-num-input" id="mm-img-w-input" min="30" max="100" value="100" style="width:38px">',
+            '          <button type="button" class="vp-step-btn" id="mm-img-w-inc">+</button>',
+            '          <span style="font-size:10px;color:#94a3b8">%</span>',
+            '          <button type="button" class="vp-btn-sm" id="mm-img-remove" title="Xóa ảnh khung">🗑️</button>',
+            '        </div>',
+            '        <div class="vp-pill-group hidden" id="mm-student-blanks-panel">',
+            '          <span class="hidden" id="mm-selected-blank-info"></span>',
+            '          <button type="button" class="vp-btn-sm" id="mm-blank-shorter">− Ngắn</button>',
+            '          <button type="button" class="vp-btn-sm" id="mm-blank-longer">+ Dài</button>',
+            '          <button type="button" class="vp-btn-sm accent" id="mm-blank-auto">↔ Cuối hàng</button>',
+            '          <button type="button" class="vp-btn-sm" id="mm-blank-add-row">+ Hàng</button>',
+            '          <button type="button" class="vp-btn-sm" id="mm-blank-rem-row">− Hàng</button>',
+            '        </div>',
+            '      </div>',
+            '      <div class="vp-bar-group">',
+            '        <select class="vp-select hidden" id="mm-export-preset" aria-hidden="true">',
+            '          <option value="teacher">GV · 1920×1080</option>',
+            '          <option value="student">HS · A4 300 DPI</option>',
+            '        </select>',
+            '        <input type="number" class="vp-num-input" id="mm-export-seq" min="1" value="1" style="width:38px;height:26px;text-align:center" title="Số thứ tự ảnh">',
+            '        <button type="button" class="vp-btn-png compact" id="vp-download-png">↓ PNG</button>',
+            '        <button type="button" class="vp-btn-png compact" id="vp-save-obs-deck" style="background:#059669;border-color:#34d399;" title="Lưu slide GV hiện tại vào Bộ bài giảng OBS">💾 Lưu vào Bài giảng</button>',
+            '        <button type="button" class="vp-btn-png compact" id="vp-open-obs-deck" style="background:#7c3aed;border-color:#a78bfa;" title="Mở khung quản lý Bộ bài giảng OBS & Đẩy vào Thư viện">📚 Bài giảng (<span id="mm-deck-count">0</span>)</button>',
+            '        <button type="button" class="vp-close-sm" id="btn-close-minmap" title="Đóng MinMap">✕</button>',
+            '      </div>',
+            '    </div>',
+            '    <div class="vp-canvas-scroll">',
+            '      <div class="vp-viewport">',
+            '        <div class="vp-stage-scaler" id="mm-stage-scaler">',
+            '          <div class="vp-stage teacher bg-obsidian" id="mm-stage-teacher">',
+            '            <div class="obs-slogan-bar theme-aurora" id="mm-slogan-bar">',
+            '              <span class="obs-sl-text obs-sl-left">Hãy <span class="obs-sl-accent">HỎI, HỎI VÀ HỎI THẬT NHIỀU</span></span>',
+            '              <span class="obs-sl-center"><span class="obs-sl-sep">》</span><span class="obs-sl-brand">Team LTĐ</span><span class="obs-sl-sep">《</span></span>',
+            '              <span class="obs-sl-text obs-sl-right">Luôn Tin vào Bản Thân và LTĐ nhé <span class="obs-sl-sep">》</span> BÍ MẬT vì đó là BÍ THUẬT</span>',
+            '            </div>',
+            '            <div class="vp-stage-inner" id="mm-teacher-stage-inner"></div>',
+            '          </div>',
+            '          <div class="vp-stage student hidden" id="mm-stage-student">',
+            '            <div class="vp-stage-inner" id="mm-student-stage-inner"></div>',
+            '          </div>',
+            '        </div>',
+            '      </div>',
+            '    </div>',
+            '  </section>',
+            '</div>',
+            '<div id="mm-deck-drawer" class="mm-deck-drawer hidden">',
+            '  <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">',
+            '    <strong style="font-size:12.5px;color:#c4b5fd;">📚 Quản lý Bài giảng</strong>',
+            '    <div style="display:flex;gap:4px;">',
+            '      <button type="button" class="vp-btn-sm" id="mm-deck-new">+ Bài mới</button>',
+            '      <button type="button" class="vp-btn-sm" id="mm-deck-rename" title="Đổi tên bộ">✎</button>',
+            '      <button type="button" class="vp-btn-sm" id="mm-deck-del" title="Xóa bộ">🗑</button>',
+            '      <button type="button" class="vp-btn-sm" id="mm-deck-close" title="Đóng">✕</button>',
+            '    </div>',
+            '  </div>',
+            '  <div class="mm-deck-row"><select id="mm-deck-select" class="mm-deck-sel"></select></div>',
+            '  <div class="mm-deck-tabs">',
+            '    <button type="button" class="mm-deck-tab active" id="mm-tab-gv">🎬 Slide GV (<span id="mm-gv-cnt">0</span>)</button>',
+            '    <button type="button" class="mm-deck-tab" id="mm-tab-hs">📄 Phiếu HS A4 (<span id="mm-hs-cnt">0</span>)</button>',
+            '  </div>',
+            '  <div id="mm-deck-slides" class="mm-deck-slides"></div>',
+            '  <div id="mm-hs-export-bar" class="hidden" style="display:flex;gap:6px;">',
+            '    <button type="button" class="vp-btn-png compact" id="mm-export-hs-pdf" style="flex:1;justify-content:center;background:#059669;border-color:#34d399;">📥 Xuất PDF (A4)</button>',
+            '    <button type="button" class="vp-btn-png compact" id="mm-export-hs-zip" style="flex:1;justify-content:center;background:#0284c7;border-color:#38bdf8;">📦 Xuất ZIP (.png)</button>',
+            '  </div>',
+            '  <button type="button" class="vp-btn-png compact" id="mm-push-lib-btn" style="width:100%;justify-content:center;background:#d97706;border-color:#fbbf24;">📤 Đẩy vào Thư viện</button>',
+            '</div>',
+            '<div id="mm-push-backdrop" class="mm-push-backdrop hidden">',
+            '  <div id="mm-push-dialog" class="mm-push-dialog">',
+            '    <div class="mm-push-header">',
+            '      <strong class="mm-push-title">📤 Cài đặt Đẩy vào Thư viện</strong>',
+            '      <button type="button" class="vp-btn-sm" id="mm-push-cancel">✕</button>',
+            '    </div>',
+            '    <div class="mm-deck-field"><span>Tên bài:</span><input type="text" id="mm-push-title" class="mm-deck-sel" placeholder="VD: Chương 4 Polymer"></div>',
+            '    <div class="mm-deck-field"><span>Khối lớp:</span><select id="mm-dest-grade" class="mm-deck-sel"><option value="ALL">🎓 Tất cả khối</option><option value="Lớp 12">Lớp 12</option><option value="Lớp 11">Lớp 11</option><option value="Lớp 10">Lớp 10</option></select></div>',
+            '    <div class="mm-deck-field"><span>Tìm thư mục:</span><input type="text" id="mm-dest-folder-q" class="mm-deck-sel" placeholder="🔍 Gõ tên thư mục (VD: Chương 4, Polymer)..."></div>',
+            '    <div class="mm-deck-field"><span>Thư mục:</span><select id="mm-dest-folder" class="mm-deck-sel"></select></div>',
+            '    <div class="mm-push-actions">',
+            '      <button type="button" class="vp-btn-sm" id="mm-push-cancel-btn">Hủy</button>',
+            '      <button type="button" class="vp-btn-png compact" id="mm-push-confirm-btn">✅ Xác nhận đẩy</button>',
+            '    </div>',
+            '  </div>',
+            '</div>',
+            '<div id="mm-toast-box"></div>'
+        ].join('\n');
+        document.body.appendChild(modalEl);
+
+        var iconBody = $('#mm-icon-body');
+        ICON_GROUPS.forEach(function (g) {
+            var wrap = document.createElement('div');
+            wrap.innerHTML = '<div class="mm-icon-cat">' + escapeHtml(g.label) + '</div><div class="mm-icon-grid"></div>';
+            var grid = wrap.querySelector('.mm-icon-grid');
+            g.icons.forEach(function (ico) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'mm-icon-chip';
+                b.textContent = ico;
+                b.addEventListener('click', function () {
+                    var ed = $('#markdown-editor');
+                    var pos = ed.selectionStart || 0;
+                    ed.value = ed.value.slice(0, pos) + ico + ' ' + ed.value.slice(pos);
+                    $('#mm-icon-drawer').classList.add('hidden');
+                    recordHistory();
+                    saveDraft();
+                    renderAll();
+                });
+                grid.appendChild(b);
+            });
+            iconBody.appendChild(wrap);
+        });
+
+        var ed = $('#markdown-editor');
+        var saved = '';
+        try { saved = global.localStorage ? (global.localStorage.getItem(LS_DRAFT) || '') : ''; } catch (e) {}
+        ed.value = saved.trim() ? saved : SAMPLE_MINMAP;
+        recordHistory();
+
+        ed.addEventListener('input', function () {
+            saveDraft();
+            recordHistory();
+            renderAll();
+        });
+        var edFs = 13;
+        try {
+            var savedFs = parseInt(global.localStorage ? global.localStorage.getItem(LS_ED_FS) : '', 10);
+            if (!isNaN(savedFs)) edFs = savedFs;
+        } catch (e) {}
+        function applyEditorFontSize(nextFs) {
+            edFs = Math.max(12, Math.min(22, parseInt(nextFs, 10) || 13));
+            ed.style.fontSize = edFs + 'px';
+            var badge = $('#mm-ed-fs-val');
+            if (badge) badge.textContent = edFs + 'px';
+            try { if (global.localStorage) global.localStorage.setItem(LS_ED_FS, String(edFs)); } catch (e) {}
+        }
+        applyEditorFontSize(edFs);
+        $('#btn-ed-fs-down').addEventListener('click', function () { applyEditorFontSize(edFs - 1); });
+        $('#btn-ed-fs-up').addEventListener('click', function () { applyEditorFontSize(edFs + 1); });
+
+        function indentEditorLines(isShift) {
+            var start = ed.selectionStart || 0;
+            var end = ed.selectionEnd || 0;
+            var val = ed.value || '';
+            var lineStart = val.lastIndexOf('\n', start - 1) + 1;
+            var lineEnd = val.indexOf('\n', end);
+            if (lineEnd === -1) lineEnd = val.length;
+            var block = val.slice(lineStart, lineEnd);
+            var lines = block.split('\n');
+            var deltaStart = 0;
+            var deltaTotal = 0;
+            var updated = lines.map(function (ln, idx) {
+                if (!isShift) {
+                    if (idx === 0) deltaStart = 2;
+                    deltaTotal += 2;
+                    return '  ' + ln;
+                }
+                var rm = ln.indexOf('  ') === 0 ? 2 : (ln.charAt(0) === '\t' || ln.charAt(0) === ' ' ? 1 : 0);
+                if (idx === 0) deltaStart = -rm;
+                deltaTotal -= rm;
+                return ln.slice(rm);
+            }).join('\n');
+            ed.value = val.slice(0, lineStart) + updated + val.slice(lineEnd);
+            var nextStart = Math.max(lineStart, start + deltaStart);
+            var nextEnd = Math.max(nextStart, end + deltaTotal);
+            ed.selectionStart = nextStart;
+            ed.selectionEnd = nextEnd;
+            saveDraft();
+            recordHistory();
+            renderAll();
+        }
+
+        function syncStageToRow(rowIdx) {
+            $all('.mm-sync-active').forEach(function (el) { el.classList.remove('mm-sync-active'); });
+            if (isNaN(rowIdx) || rowIdx < 0) return;
+            var stageSel = state.tab === 'student' ? '#mm-student-stage-inner' : '#mm-teacher-stage-inner';
+            var stageEl = $(stageSel);
+            if (!stageEl || typeof stageEl.querySelector !== 'function') return;
+            var target = stageEl.querySelector('[data-row="' + rowIdx + '"]');
+            if (target) {
+                target.classList.add('mm-sync-active');
+                if (typeof target.scrollIntoView === 'function') {
+                    try { target.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+                }
+            }
+        }
+        var syncedRowIdx = -1;
+        function updateEditorLineHighlight(rowIdx, doScroll) {
+            var hl = $('#mm-ed-line-hl');
+            var bar = $('#mm-ed-sync-bar');
+            var lines = (ed.value || '').split('\n');
+            if (isNaN(rowIdx) || rowIdx < 0 || rowIdx >= lines.length) {
+                if (hl) hl.classList.add('hidden');
+                if (bar) bar.classList.add('hidden');
+                return;
+            }
+            syncedRowIdx = rowIdx;
+            var cs = (global.getComputedStyle && typeof global.getComputedStyle === 'function') ? global.getComputedStyle(ed) : null;
+            var fsPx = cs ? (parseFloat(cs.fontSize) || 13) : (parseFloat(ed.style.fontSize) || 13);
+            var lh = cs ? (parseFloat(cs.lineHeight) || Math.round(fsPx * 1.55)) : Math.round(fsPx * 1.55);
+            var padTop = cs ? (parseFloat(cs.paddingTop) || 10) : 10;
+            var targetY = padTop + rowIdx * lh;
+            var rowH = lh;
+            if (cs && ed.clientWidth && typeof document.createTextNode === 'function') {
+                if (!modalEl._edMirror) {
+                    var mr = document.createElement('div');
+                    mr.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;pointer-events:none;white-space:pre-wrap;word-wrap:break-word;box-sizing:border-box;';
+                    modalEl.appendChild(mr);
+                    modalEl._edMirror = mr;
+                }
+                var m = modalEl._edMirror;
+                m.style.width = ed.clientWidth + 'px';
+                m.style.fontFamily = cs.fontFamily;
+                m.style.fontSize = cs.fontSize;
+                m.style.lineHeight = cs.lineHeight;
+                m.style.padding = cs.padding;
+                m.innerHTML = '';
+                var beforeTxt = lines.slice(0, rowIdx).join('\n');
+                m.appendChild(document.createTextNode(beforeTxt + (beforeTxt.length ? '\n' : '')));
+                var sp = document.createElement('span');
+                sp.textContent = lines[rowIdx] || ' ';
+                m.appendChild(sp);
+                if (typeof sp.offsetTop === 'number' && sp.offsetHeight > 0) {
+                    targetY = sp.offsetTop;
+                    rowH = sp.offsetHeight;
+                }
+            }
+            if (doScroll) {
+                var viewH = ed.clientHeight || 300;
+                ed.scrollTop = Math.max(0, targetY - Math.round(viewH * 0.35));
+            }
+            if (hl) {
+                hl.style.top = (targetY - (ed.scrollTop || 0)) + 'px';
+                hl.style.height = rowH + 'px';
+                hl.classList.remove('hidden');
+            }
+            if (bar) {
+                bar.textContent = '📍 Dòng ' + (rowIdx + 1) + ': ' + lines[rowIdx].trim();
+                bar.classList.remove('hidden');
+            }
+        }
+        function syncEditorToRow(rowIdx) {
+            if (isNaN(rowIdx) || rowIdx < 0) return;
+            var lines = (ed.value || '').split('\n');
+            if (rowIdx >= lines.length) return;
+            var start = 0;
+            for (var i = 0; i < rowIdx; i++) start += lines[i].length + 1;
+            var end = start + lines[rowIdx].length;
+            ed.selectionStart = start;
+            ed.selectionEnd = end;
+            updateEditorLineHighlight(rowIdx, true);
+        }
+        ed.addEventListener('scroll', function () {
+            if (syncedRowIdx >= 0) updateEditorLineHighlight(syncedRowIdx, false);
+        });
+        function getEditorCursorRow() {
+            return (ed.value || '').slice(0, ed.selectionStart || 0).split('\n').length - 1;
+        }
+        ed.addEventListener('keyup', function () { var r = getEditorCursorRow(); syncStageToRow(r); updateEditorLineHighlight(r, false); });
+        ed.addEventListener('click', function () { var r = getEditorCursorRow(); syncStageToRow(r); updateEditorLineHighlight(r, false); });
+        ['#mm-teacher-stage-inner', '#mm-student-stage-inner'].forEach(function (sel) {
+            var box = $(sel);
+            if (!box) return;
+            box.addEventListener('click', function (e) {
+                var rEl = e.target && e.target.closest ? e.target.closest('[data-row]') : null;
+                if (!rEl) return;
+                var rIdx = parseInt(rEl.getAttribute('data-row'), 10);
+                syncStageToRow(rIdx);
+                syncEditorToRow(rIdx);
+            });
+        });
+        modalEl._syncRow = function (rIdx) { syncStageToRow(rIdx); syncEditorToRow(rIdx); };
+
+        ed.addEventListener('keydown', function (e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                indentEditorLines(!!e.shiftKey);
+                return;
+            }
+            if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+                var k = e.key.toLowerCase();
+                if (k === 'h') { e.preventDefault(); toggleHighlightSelection(); }
+                else if (k === 'i') { e.preventDefault(); $('#mm-icon-drawer').classList.toggle('hidden'); }
+            }
+        });
+        ed.addEventListener('paste', function (e) {
+            var cb = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData);
+            if (!cb) return;
+            var hasImg = false;
+            if (cb.items) {
+                for (var i = 0; i < cb.items.length; i++) {
+                    if (cb.items[i].type && cb.items[i].type.indexOf('image') !== -1) { hasImg = true; break; }
+                }
+            }
+            if (!hasImg) {
+                setTimeout(function () { saveDraft(); recordHistory(); renderAll(); }, 0);
+            }
+        });
+
+        $('#btn-close-minmap').addEventListener('click', close);
+        $('#tab-btn-teacher').addEventListener('click', function () { switchTab('teacher'); });
+        $('#tab-btn-student').addEventListener('click', function () { switchTab('student'); });
+        $('#btn-undo').addEventListener('click', function () { stepHistory(-1); });
+        $('#btn-redo').addEventListener('click', function () { stepHistory(1); });
+        $('#btn-clear-content').addEventListener('click', function () {
+            ed.value = '';
+            recordHistory();
+            saveDraft();
+            renderAll();
+        });
+        $('#btn-quick-paste').addEventListener('click', function () {
+            ed.focus();
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                navigator.clipboard.readText().then(function (txt) {
+                    if (txt) {
+                        var s = ed.selectionStart || 0;
+                        var en = ed.selectionEnd || 0;
+                        if (ed.value && s !== en) {
+                            ed.value = ed.value.slice(0, s) + txt + ed.value.slice(en);
+                            ed.selectionStart = ed.selectionEnd = s + txt.length;
+                        } else {
+                            ed.value = txt;
+                        }
+                        recordHistory(); saveDraft(); renderAll();
+                    }
+                }).catch(function () {
+                    setStatus('Nhấn Ctrl+V trực tiếp trong ô soạn thảo để dán.');
+                    showToast('Trình duyệt chặn nút đọc clipboard — hãy nhấn Ctrl+V trực tiếp trong ô soạn thảo.', 'warning');
+                });
+            } else {
+                setStatus('Nhấn Ctrl+V trực tiếp trong ô soạn thảo để dán.');
+                showToast('Hãy nhấn Ctrl+V trực tiếp trong ô soạn thảo.', 'warning');
+            }
+        });
+        $('#btn-content-icons').addEventListener('click', function () {
+            $('#mm-icon-drawer').classList.toggle('hidden');
+        });
+        $('#mm-icon-close').addEventListener('click', function () {
+            $('#mm-icon-drawer').classList.add('hidden');
+        });
+        $('#btn-toggle-highlight').addEventListener('click', toggleHighlightSelection);
+        var btnCol2 = $('#btn-toggle-col2');
+        if (btnCol2) {
+            btnCol2.addEventListener('click', function () {
+                var wide = modalEl.classList.toggle('wide-col1');
+                btnCol2.classList.toggle('accent', wide);
+                try { fitStage(); } catch (e) {}
+            });
+        }
+
+        $('#btn-save-md').addEventListener('click', function () {
+            var model = parseInput(ed.value);
+            var fname = safeName(model.title, state.tab, state.tab === 'student' ? state.studentSeq : state.teacherSeq).replace(/\.png$/, '.md');
+            var blob = new Blob([ed.value], { type: 'text/markdown;charset=utf-8' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url; a.download = fname;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        });
+        $('#btn-import-md').addEventListener('click', function () { $('#mm-import-file').click(); });
+        $('#mm-import-file').addEventListener('change', function (e) {
+            var f = e.target.files && e.target.files[0];
+            if (!f) return;
+            var r = new FileReader();
+            r.onload = function (ev) {
+                ed.value = String(ev.target.result || '');
+                recordHistory(); saveDraft(); renderAll();
+            };
+            r.readAsText(f, 'UTF-8');
+        });
+
+        $('#mm-font-select').addEventListener('change', function (e) {
+            state.font = e.target.value || 'Segoe UI';
+            renderAll();
+        });
+        function applyBodyFs(val) {
+            var n = Math.max(12, Math.min(48, parseInt(val, 10) || 16));
+            $('#mm-body-fs-input').value = n;
+            if (state.tab === 'teacher') state.teacherBodyFs = n;
+            else state.studentBodyFs = n;
+            renderAll();
+        }
+        $('#mm-body-fs-dec').addEventListener('click', function () { applyBodyFs((parseInt($('#mm-body-fs-input').value, 10) || 40) - 1); });
+        $('#mm-body-fs-inc').addEventListener('click', function () { applyBodyFs((parseInt($('#mm-body-fs-input').value, 10) || 40) + 1); });
+        $('#mm-body-fs-input').addEventListener('input', function (e) { applyBodyFs(e.target.value); });
+        function applyMainTitleFs(val) {
+            var n = Math.max(18, Math.min(52, parseInt(val, 10) || 24));
+            var inp = $('#mm-main-title-fs-input');
+            if (inp) inp.value = n;
+            if (state.tab === 'teacher') state.teacherMainTitleFs = n;
+            else state.studentMainTitleFs = n;
+            renderAll();
+        }
+        function applyCardTitleFs(val) {
+            var n = Math.max(14, Math.min(42, parseInt(val, 10) || 18));
+            var inp = $('#mm-card-title-fs-input');
+            if (inp) inp.value = n;
+            if (state.tab === 'teacher') state.teacherCardTitleFs = n;
+            else state.studentCardTitleFs = n;
+            renderAll();
+        }
+        $('#mm-main-title-fs-dec').addEventListener('click', function () { applyMainTitleFs((parseInt($('#mm-main-title-fs-input').value, 10) || 38) - 2); });
+        $('#mm-main-title-fs-inc').addEventListener('click', function () { applyMainTitleFs((parseInt($('#mm-main-title-fs-input').value, 10) || 38) + 2); });
+        $('#mm-main-title-fs-input').addEventListener('input', function (e) { applyMainTitleFs(e.target.value); });
+        $('#mm-card-title-fs-dec').addEventListener('click', function () { applyCardTitleFs((parseInt($('#mm-card-title-fs-input').value, 10) || 30) - 1); });
+        $('#mm-card-title-fs-inc').addEventListener('click', function () { applyCardTitleFs((parseInt($('#mm-card-title-fs-input').value, 10) || 30) + 1); });
+        $('#mm-card-title-fs-input').addEventListener('input', function (e) { applyCardTitleFs(e.target.value); });
+
+        function autoFitTeacher16x9() {
+            if (state.tab !== 'teacher') {
+                state.zoom100 = !state.zoom100;
+                $('#vp-zoom').classList.toggle('on', state.zoom100);
+                fitStage();
+                return;
+            }
+            var st = $('#mm-stage-teacher');
+            if (!st) return;
+            var cards = parseInput(($('#markdown-editor') || {}).value || '').cards.slice(0, 4);
+            var fits = function () { return st.scrollHeight <= 1080; };
+            if (!fits() && cards.length === 3) {
+                state.splitOverride = state.splitOverride === 1 ? 2 : 1;
+                renderStage(false);
+                if (!fits()) {
+                    state.swapCols = !state.swapCols;
+                    renderStage(false);
+                }
+            } else if (!fits() && cards.length >= 2) {
+                state.swapCols = !state.swapCols;
+                renderStage(false);
+            }
+            var fs = state.teacherBodyFs;
+            while (!fits() && fs > 16) {
+                fs -= 2;
+                state.teacherBodyFs = fs;
+                renderStage(false);
+            }
+            var fsInp = $('#mm-body-fs-input');
+            if (fsInp) fsInp.value = state.teacherBodyFs;
+            fitStage();
+            setStatus('✓ Đã căn vừa trang 16:9 (' + state.teacherBodyFs + 'px)');
+        }
+
+        if ($('#vp-zoom')) $('#vp-zoom').addEventListener('click', autoFitTeacher16x9);
+
+        $('#mm-slogan-toggle').addEventListener('click', function () {
+            state.sloganOn = !state.sloganOn;
+            $('#mm-slogan-bar').classList.toggle('hidden', !state.sloganOn);
+            $('#mm-slogan-toggle').textContent = state.sloganOn ? 'Đang BẬT' : 'Đang TẮT';
+            $('#mm-slogan-toggle').classList.toggle('on', state.sloganOn);
+        });
+        $('#mm-slogan-theme-select').addEventListener('change', function (e) {
+            var bar = $('#mm-slogan-bar');
+            bar.classList.remove('theme-aurora', 'theme-emerald', 'theme-pro', 'theme-royal');
+            state.sloganTheme = e.target.value;
+            bar.classList.add(state.sloganTheme);
+        });
+
+        function applyImgWidth(val) {
+            var n = Math.max(30, Math.min(100, parseInt(val, 10) || 100));
+            $('#mm-img-w-input').value = n;
+            if (state.branchImages[state.selectedBranch]) {
+                state.branchImages[state.selectedBranch].widthPct = n;
+                renderAll();
+            }
+        }
+        $('#mm-img-w-dec').addEventListener('click', function () { applyImgWidth((parseInt($('#mm-img-w-input').value, 10) || 100) - 10); });
+        $('#mm-img-w-inc').addEventListener('click', function () { applyImgWidth((parseInt($('#mm-img-w-input').value, 10) || 100) + 10); });
+        $('#mm-img-w-input').addEventListener('input', function (e) { applyImgWidth(e.target.value); });
+        $('#mm-img-remove').addEventListener('click', function () {
+            delete state.branchImages[state.selectedBranch];
+            setStatus('✓ Đã xóa ảnh Khung ' + (state.selectedBranch + 1));
+            renderAll();
+        });
+
+        function resizeSelectedBlank(delta) {
+            if (!state.selectedBlankId) {
+                showToast('Hãy bấm chọn 1 ô chấm trên bản Học sinh trước.', 'warning');
+                return;
+            }
+            if (delta === 'end') {
+                state.blankWidths[state.selectedBlankId] = 'end';
+            } else {
+                var cur = typeof state.blankWidths[state.selectedBlankId] === 'number' ? state.blankWidths[state.selectedBlankId] : NaN;
+                if (isNaN(cur)) {
+                    var blEl = $('#mm-student-stage-inner [data-blank-id="' + state.selectedBlankId + '"]');
+                    cur = blEl ? parseFloat(blEl.getAttribute('data-def-w') || blEl.style.width || '6') : 6;
+                }
+                if (isNaN(cur)) cur = 6;
+                state.blankWidths[state.selectedBlankId] = Math.max(2.5, Math.min(28, cur + delta));
+            }
+            renderStage(true);
+            fitStage();
+        }
+        $('#mm-blank-shorter').addEventListener('click', function () { resizeSelectedBlank(-1.5); });
+        $('#mm-blank-longer').addEventListener('click', function () { resizeSelectedBlank(1.5); });
+        $('#mm-blank-auto').addEventListener('click', function () { resizeSelectedBlank('end'); });
+        function stepBlankRows(delta) {
+            if (!state.selectedBlankId) {
+                showToast('Hãy bấm chọn 1 ô chấm trên bản Học sinh trước.', 'warning');
+                return;
+            }
+            var cur = state.blankRows[state.selectedBlankId] || 0;
+            state.blankRows[state.selectedBlankId] = Math.max(0, Math.min(10, cur + delta));
+            renderStage(true);
+            fitStage();
+        }
+        $('#mm-blank-add-row').addEventListener('click', function () { stepBlankRows(1); });
+        $('#mm-blank-rem-row').addEventListener('click', function () { stepBlankRows(-1); });
+
+        $('#mm-export-preset').addEventListener('change', function (e) { switchTab(e.target.value); });
+        $('#mm-export-seq').addEventListener('change', function (e) {
+            var n = Math.max(1, parseInt(e.target.value, 10) || 1);
+            if (state.tab === 'student') state.studentSeq = n;
+            else state.teacherSeq = n;
+            e.target.value = n;
+        });
+        $('#vp-download-png').addEventListener('click', exportPng);
+
+        /* === [MT-10B/C/D] Kho IndexedDB Bai giang GV+HS, Loc khoi thong minh, PDF A4 2-up & Thu vien === */
+        var OBS_DB_NAME = 'LTD_MINMAP_OBS_DB';
+        var OBS_LS_DECKS = 'ltd_minmap_obs_decks_v1';
+        var _memSlideMap = {};
+        var _deckState = { decks: [], activeId: '', loaded: false, viewTab: 'gv' };
+
+        function noAccent(str) {
+            return String(str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+        }
+        function openObsDb() {
+            return new Promise(function (resolve, reject) {
+                if (typeof indexedDB === 'undefined') return reject(new Error('no-idb'));
+                var req = indexedDB.open(OBS_DB_NAME, 1);
+                req.onupgradeneeded = function (ev) {
+                    var db = ev.target.result;
+                    if (!db.objectStoreNames.contains('slides')) db.createObjectStore('slides', { keyPath: 'id' });
+                };
+                req.onsuccess = function () { resolve(req.result); };
+                req.onerror = function () { reject(req.error || new Error('idb-err')); };
+            });
+        }
+        function putSlideDataUrl(id, dataUrl) {
+            _memSlideMap[id] = dataUrl;
+            return openObsDb().then(function (db) {
+                return new Promise(function (resolve, reject) {
+                    var tx = db.transaction('slides', 'readwrite');
+                    tx.objectStore('slides').put({ id: id, dataUrl: dataUrl });
+                    tx.oncomplete = function () { resolve(true); };
+                    tx.onerror = function () { reject(tx.error); };
+                });
+            }).catch(function () { return false; });
+        }
+        function getSlideDataUrl(id) {
+            if (_memSlideMap[id]) return Promise.resolve(_memSlideMap[id]);
+            return openObsDb().then(function (db) {
+                return new Promise(function (resolve) {
+                    var tx = db.transaction('slides', 'readonly');
+                    var req = tx.objectStore('slides').get(id);
+                    req.onsuccess = function () {
+                        var val = req.result && req.result.dataUrl ? req.result.dataUrl : '';
+                        if (val) _memSlideMap[id] = val;
+                        resolve(val);
+                    };
+                    req.onerror = function () { resolve(''); };
+                });
+            }).catch(function () { return _memSlideMap[id] || ''; });
+        }
+        function loadDecksMeta() {
+            if (_deckState.loaded) return _deckState.decks;
+            _deckState.loaded = true;
+            try {
+                var raw = JSON.parse(localStorage.getItem(OBS_LS_DECKS) || '[]');
+                if (Array.isArray(raw)) _deckState.decks = raw;
+            } catch (e) { _deckState.decks = []; }
+            if (!_deckState.decks.length) {
+                _deckState.decks.push({ id: 'deck_' + Date.now(), name: 'Bài giảng Hóa học 1', slides: [], hsSlides: [] });
+            }
+            _deckState.decks.forEach(function (d) {
+                if (!Array.isArray(d.slides)) d.slides = [];
+                if (!Array.isArray(d.hsSlides)) d.hsSlides = [];
+            });
+            if (!_deckState.activeId || !_deckState.decks.some(function (d) { return d.id === _deckState.activeId; })) {
+                _deckState.activeId = _deckState.decks[0].id;
+            }
+            return _deckState.decks;
+        }
+        function saveDecksMeta() {
+            try { localStorage.setItem(OBS_LS_DECKS, JSON.stringify(_deckState.decks)); } catch (e) {}
+        }
+        function getActiveDeck() {
+            loadDecksMeta();
+            return _deckState.decks.find(function (d) { return d.id === _deckState.activeId; }) || _deckState.decks[0];
+        }
+        function blobToDataUrl(blob) {
+            return new Promise(function (resolve, reject) {
+                if (typeof FileReader === 'undefined') return resolve('data:image/png;base64,');
+                var fr = new FileReader();
+                fr.onloadend = function () { resolve(fr.result || ''); };
+                fr.onerror = reject;
+                fr.readAsDataURL(blob);
+            });
+        }
+        function getLibFoldersList() {
+            var list = [];
+            if (global.LTDLibBridge && typeof global.LTDLibBridge.getFolders === 'function') list = global.LTDLibBridge.getFolders();
+            if ((!list || !list.length) && Array.isArray(global.savedFolders) && global.savedFolders.length) list = global.savedFolders;
+            if (!list || !list.length) {
+                try {
+                    var raw = JSON.parse(localStorage.getItem('matrix_library_folders_v1') || '[]');
+                    if (Array.isArray(raw)) list = raw;
+                } catch (e) {}
+            }
+            return (list || []).filter(function (f) { var pid = String((f && f.parentId) || '').toLowerCase(); return f && pid !== '__subj_meta__' && pid !== '__subjmeta'; });
+        }
+        function getLibTopicsList() {
+            if (global.LTDLibBridge && typeof global.LTDLibBridge.getTopics === 'function') return global.LTDLibBridge.getTopics();
+            if (Array.isArray(global.savedTopics)) return global.savedTopics;
+            try {
+                var raw = JSON.parse(localStorage.getItem('matrix_quiz_topics_v2') || '[]');
+                if (Array.isArray(raw)) return raw;
+            } catch (e) {}
+            return [];
+        }
+        function detectFolderGrade(folder, fullPath) {
+            if (folder && folder.grade && /Lớp\s*(10|11|12)/i.test(folder.grade)) return folder.grade;
+            var p = noAccent(fullPath);
+            if (/(?:hoa\s*hoc|hoa|lop|h)\s*12\b/.test(p)) return 'Lớp 12';
+            if (/(?:hoa\s*hoc|hoa|lop|h)\s*11\b/.test(p)) return 'Lớp 11';
+            if (/(?:hoa\s*hoc|hoa|lop|h)\s*10\b/.test(p)) return 'Lớp 10';
+            return '';
+        }
+        function populateDestPickers() {
+            var fSel = $('#mm-dest-folder');
+            var gSel = $('#mm-dest-grade');
+            var qInp = $('#mm-dest-folder-q');
+            if (!fSel) return;
+            var allF = getLibFoldersList();
+            var fMap = {};
+            allF.forEach(function (f) { if (f && f.id) fMap[f.id] = f; });
+            function pathOf(f) {
+                var parts = [f.name || 'Thư mục'], cur = f, g = 0;
+                while (cur && cur.parentId && fMap[cur.parentId] && g++ < 8) {
+                    cur = fMap[cur.parentId];
+                    parts.unshift(cur.name || 'Thư mục');
+                }
+                return parts.join(' › ');
+            }
+            var selGrade = (gSel && gSel.value) || 'ALL';
+            function isChemistrySubject(sj) {
+                if (!sj) return true;
+                var s = noAccent(sj).replace(/\s+/g, ' ');
+                return /\bhoa\b|hoa\s*hoc/.test(s);
+            }
+            var qNorm = noAccent(qInp ? qInp.value : '').replace(/\s+/g, ' ');
+            var opts = '<option value="">(Ngoài thư mục — Gốc Hóa học)</option>';
+            var matched = allF.filter(function (f) {
+                if (!f) return false;
+                if (f.subject && !isChemistrySubject(f.subject)) return false;
+                var fullP = pathOf(f);
+                if (selGrade !== 'ALL') {
+                    var fg = detectFolderGrade(f, fullP);
+                    if (fg && fg !== selGrade) return false;
+                }
+                if (qNorm && noAccent(fullP).replace(/\s+/g, ' ').indexOf(qNorm) === -1) return false;
+                return true;
+            });
+            matched.forEach(function (f) {
+                var fullP = pathOf(f);
+                opts += '<option value="' + escapeHtml(f.id) + '" title="' + escapeHtml(fullP) + '">' + escapeHtml(fullP) + '</option>';
+            });
+            fSel.innerHTML = opts;
+            var curOpt = fSel.options && fSel.selectedIndex >= 0 ? fSel.options[fSel.selectedIndex] : null;
+            fSel.title = curOpt ? (curOpt.title || curOpt.textContent || '') : '';
+        }
+        function renderDeckDrawer() {
+            loadDecksMeta();
+            var d = getActiveDeck();
+            var gvCount = d ? d.slides.length : 0;
+            var hsCount = d ? d.hsSlides.length : 0;
+            var cntEl = $('#mm-deck-count');
+            if (cntEl) cntEl.textContent = String(gvCount + hsCount);
+            var gvCntEl = $('#mm-gv-cnt');
+            if (gvCntEl) gvCntEl.textContent = String(gvCount);
+            var hsCntEl = $('#mm-hs-cnt');
+            if (hsCntEl) hsCntEl.textContent = String(hsCount);
+
+            var tGv = $('#mm-tab-gv'), tHs = $('#mm-tab-hs'), hsBar = $('#mm-hs-export-bar');
+            var isHsTab = _deckState.viewTab === 'hs';
+            if (tGv && tGv.classList) tGv.classList.toggle('active', !isHsTab);
+            if (tHs && tHs.classList) tHs.classList.toggle('active', isHsTab);
+            if (hsBar) {
+                if (hsBar.classList) hsBar.classList.toggle('hidden', !isHsTab);
+                hsBar.style.display = isHsTab ? 'flex' : 'none';
+            }
+
+            var sel = $('#mm-deck-select');
+            if (sel) {
+                sel.innerHTML = _deckState.decks.map(function (dk) {
+                    return '<option value="' + escapeHtml(dk.id) + '"' + (dk.id === d.id ? ' selected' : '') + '>' + escapeHtml(dk.name) + ' (' + dk.slides.length + ' GV · ' + dk.hsSlides.length + ' HS)</option>';
+                }).join('');
+            }
+            var arr = d ? (isHsTab ? d.hsSlides : d.slides) : [];
+            var listEl = $('#mm-deck-slides');
+            if (listEl) {
+                if (!arr.length) {
+                    listEl.innerHTML = '<div style="font-size:11.5px;color:#94a3b8;text-align:center;padding:12px;">Chưa có trang ' + (isHsTab ? 'HS A4' : 'GV') + ' nào. Hãy chọn tab ' + (isHsTab ? 'HS' : 'GV') + ' và bấm "💾 Lưu vào Bài giảng".</div>';
+                } else {
+                    listEl.innerHTML = arr.map(function (sl, i) {
+                        var src = _memSlideMap[sl.id] || '';
+                        return '<div class="mm-deck-item" draggable="true" data-sidx="' + i + '">' +
+                            '<img class="mm-deck-thumb" data-sid="' + escapeHtml(sl.id) + '" src="' + src + '" alt="slide">' +
+                            '<div class="mm-deck-meta"><div class="mm-deck-title">' + escapeHtml(String(i + 1).padStart(2, '0') + '. ' + (sl.title || 'Trang')) + '</div></div>' +
+                            '<div class="mm-deck-acts">' +
+                            '<button type="button" class="vp-btn-sm" data-act="up" data-idx="' + i + '">▲</button>' +
+                            '<button type="button" class="vp-btn-sm" data-act="dn" data-idx="' + i + '">▼</button>' +
+                            '<button type="button" class="vp-btn-sm" data-act="del" data-idx="' + i + '">🗑</button>' +
+                            '</div></div>';
+                    }).join('');
+                    arr.forEach(function (sl) {
+                        if (!_memSlideMap[sl.id]) {
+                            getSlideDataUrl(sl.id).then(function (u) {
+                                var im = listEl.querySelector('img[data-sid="' + sl.id + '"]');
+                                if (im && u) im.src = u;
+                            });
+                        }
+                    });
+                }
+            }
+            populateDestPickers();
+        }
+        function saveCurrentSlideToObsDeck() {
+            var isHs = state.tab === 'student';
+            var stage = $(isHs ? '#mm-stage-student' : '#mm-stage-teacher');
+            if (!stage) return Promise.resolve(null);
+            var edEl = $('#markdown-editor');
+            var model = parseInput(edEl ? edEl.value : '');
+            var title = (model.title || 'Sơ đồ MinMap').replace(/==/g, '').trim();
+            var fontCSS = buildFontEmbedCSS();
+            var w = isHs ? 794 : 1920;
+            var h = isHs ? Math.max(220, stage.scrollHeight || 480) : 1080;
+            setStatus('Đang lưu ' + (isHs ? 'Phiếu HS A4' : 'Slide GV') + ' vào Bài giảng...');
+            var p;
+            if ((global.modernScreenshot && typeof global.modernScreenshot.domToBlob === 'function') || (mmWin.htmlToImage && typeof mmWin.htmlToImage.toPng === 'function')) {
+                p = renderMinMapPngBlob(stage, isHs ? 'student' : 'teacher', w, h, fontCSS).then(function (res) {
+                    if (res && res.dataUrl) return res.dataUrl;
+                    if (res && res.blob) return blobToDataUrl(res.blob);
+                    return 'data:image/png;base64,';
+                });
+            } else {
+                p = Promise.resolve('data:image/png;base64,');
+            }
+            return p.then(function (dataUrl) {
+                var deck = getActiveDeck();
+                var sid = (isHs ? 'mmhs_' : 'mmsl_') + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+                return putSlideDataUrl(sid, dataUrl).then(function () {
+                    var targetArr = isHs ? deck.hsSlides : deck.slides;
+                    targetArr.push({ id: sid, title: title, w: w, h: h, createdAt: Date.now() });
+                    _deckState.viewTab = isHs ? 'hs' : 'gv';
+                    saveDecksMeta();
+                    renderDeckDrawer();
+                    setStatus('✓ Đã lưu ' + (isHs ? 'Phiếu HS' : 'Slide GV') + ' vào "' + deck.name + '"');
+                    showToast('Đã lưu "' + title + '" (' + (isHs ? 'Phiếu HS' : 'Slide GV') + ')', 'success');
+                    return { deckId: deck.id, slideId: sid, kind: isHs ? 'hs' : 'gv', count: targetArr.length };
+                });
+            }).catch(function (err) {
+                showToast('Lỗi lưu: ' + (err && err.message || ''), 'error');
+                return null;
+            });
+        }
+        function packSlidesIntoA4Pages(items, opts) {
+            opts = opts || {};
+            var pageW = opts.pageW || 1654;
+            var pageH = opts.pageH || 2339;
+            var marginX = opts.marginX || 84;
+            var marginTop = opts.marginTop || 88;
+            var marginBot = opts.marginBot || 88;
+            var usableW = pageW - marginX * 2;
+            var maxImgH = opts.maxImgH || 920;
+            var labelH = 48;
+            var gapY = 44;
+            var pages = [];
+            var curPage = { hasDocTitle: true, items: [] };
+            var curY = marginTop + 96;
+
+            items.forEach(function (it, idx) {
+                var iw = it.w || 794;
+                var ih = it.h || 500;
+                var scale = Math.min(usableW / iw, maxImgH / ih);
+                var drawW = Math.round(iw * scale);
+                var drawH = Math.round(ih * scale);
+                var blockH = labelH + drawH + gapY;
+                if (curPage.items.length > 0 && curY + blockH > pageH - marginBot) {
+                    pages.push(curPage);
+                    curPage = { hasDocTitle: false, items: [] };
+                    curY = marginTop;
+                }
+                curPage.items.push({
+                    num: idx + 1,
+                    title: it.title || ('Phiếu ' + (idx + 1)),
+                    dataUrl: it.dataUrl || '',
+                    x: Math.round((pageW - drawW) / 2),
+                    y: curY,
+                    drawW: drawW,
+                    drawH: drawH
+                });
+                curY += blockH;
+            });
+            if (curPage.items.length) pages.push(curPage);
+            pages.forEach(function (pg) {
+                if (pg.items.length < 2) return;
+                var topStart = pg.hasDocTitle ? (marginTop + 96) : marginTop;
+                var availH = (pageH - marginBot) - topStart;
+                var usedH = 0;
+                pg.items.forEach(function (it) { usedH += labelH + it.drawH; });
+                var extra = Math.max(0, availH - usedH);
+                var gap = extra / pg.items.length;
+                var cursor = topStart;
+                pg.items.forEach(function (it) {
+                    it.y = Math.round(cursor);
+                    cursor += labelH + it.drawH + gap;
+                });
+            });
+            return pages;
+        }
+        function buildA4PdfBytesFromJpegs(jpegPages) {
+            var objs = [];
+            function addObj(bodyBytes) {
+                objs.push(bodyBytes);
+                return objs.length;
+            }
+            function strBytes(s) {
+                var arr = new Uint8Array(s.length);
+                for (var i = 0; i < s.length; i++) arr[i] = s.charCodeAt(i) & 0xff;
+                return arr;
+            }
+            function concatBytes(parts) {
+                var total = 0;
+                parts.forEach(function (p) { total += p.length; });
+                var out = new Uint8Array(total), off = 0;
+                parts.forEach(function (p) { out.set(p, off); off += p.length; });
+                return out;
+            }
+            var catalogId = addObj(strBytes(''));
+            var pagesId = addObj(strBytes(''));
+            var pageIds = [];
+
+            jpegPages.forEach(function (pg, i) {
+                var imgId = addObj(concatBytes([
+                    strBytes('<< /Type /XObject /Subtype /Image /Width ' + pg.w + ' /Height ' + pg.h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + pg.bytes.length + ' >>\nstream\n'),
+                    pg.bytes,
+                    strBytes('\nendstream')
+                ]));
+                var streamStr = 'q\n595.28 0 0 841.89 0 0 cm\n/Im' + i + ' Do\nQ\n';
+                var contentId = addObj(strBytes('<< /Length ' + streamStr.length + ' >>\nstream\n' + streamStr + 'endstream'));
+                var pageId = addObj(strBytes('<< /Type /Page /Parent ' + pagesId + ' 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im' + i + ' ' + imgId + ' 0 R >> >> /Contents ' + contentId + ' 0 R >>'));
+                pageIds.push(pageId);
+            });
+            objs[catalogId - 1] = strBytes('<< /Type /Catalog /Pages ' + pagesId + ' 0 R >>');
+            objs[pagesId - 1] = strBytes('<< /Type /Pages /Kids [' + pageIds.map(function (id) { return id + ' 0 R'; }).join(' ') + '] /Count ' + pageIds.length + ' >>');
+
+            var chunks = [strBytes('%PDF-1.4\n')];
+            var offsets = [0];
+            var pos = chunks[0].length;
+            objs.forEach(function (body, idx) {
+                offsets.push(pos);
+                var head = strBytes((idx + 1) + ' 0 obj\n');
+                var tail = strBytes('\nendobj\n');
+                chunks.push(head, body, tail);
+                pos += head.length + body.length + tail.length;
+            });
+            var xrefPos = pos;
+            var xref = 'xref\n0 ' + (objs.length + 1) + '\n0000000000 65535 f \n';
+            for (var j = 1; j <= objs.length; j++) {
+                xref += String(offsets[j]).padStart(10, '0') + ' 00000 n \n';
+            }
+            var trailer = 'trailer\n<< /Size ' + (objs.length + 1) + ' /Root ' + catalogId + ' 0 R >>\nstartxref\n' + xrefPos + '\n%%EOF';
+            chunks.push(strBytes(xref + trailer));
+            return concatBytes(chunks);
+        }
+        function stripHsSuffix(name) {
+            return String(name || '')
+                .replace(/\s*[—–-]\s*Phiếu học tập\s*$/i, '')
+                .replace(/\s*\(Phiếu học tập\)\s*$/i, '')
+                .trim();
+        }
+        function exportHsSlidesToPdf(slidesList, deckTitle) {
+            if (!slidesList || !slidesList.length) {
+                showToast('Chưa có Phiếu HS A4 nào để xuất PDF!', 'warning');
+                return Promise.resolve(null);
+            }
+            deckTitle = stripHsSuffix(deckTitle) || 'BÀI GIẢNG';
+            setStatus('Đang tạo PDF A4 tiết kiệm giấy...');
+            return Promise.all(slidesList.map(function (sl) {
+                return getSlideDataUrl(sl.id).then(function (url) {
+                    return { id: sl.id, title: sl.title, w: sl.w || 794, h: sl.h || 500, dataUrl: url || sl.dataUrl || '' };
+                });
+            })).then(function (resolved) {
+                var pages = packSlidesIntoA4Pages(resolved);
+                return Promise.all(pages.map(function (pg) {
+                    return new Promise(function (resolve) {
+                        var cv = document.createElement('canvas');
+                        cv.width = 1654; cv.height = 2339;
+                        var ctx = cv.getContext('2d');
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, 1654, 2339);
+                        if (pg.hasDocTitle) {
+                            ctx.fillStyle = '#0f172a';
+                            ctx.font = 'bold 44px "Times New Roman", Times, serif';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(String(deckTitle || 'BÀI GIẢNG').toUpperCase(), 827, 132);
+                        }
+                        Promise.all(pg.items.map(function (it) {
+                            return new Promise(function (resItem) {
+                                ctx.fillStyle = '#0f172a';
+                                ctx.font = 'bold 30px "Times New Roman", Times, serif';
+                                ctx.textAlign = 'left';
+                                var cleanSub = String(it.title || '').replace(/^[^\p{L}\p{N}]+/gu, '').replace(/^Câu\s*\d+\s*[:.]\s*/i, '').trim();
+                                ctx.fillText('Câu ' + it.num + ': ' + cleanSub, 84, it.y + 32);
+                                if (!it.dataUrl || typeof Image === 'undefined') { resItem(); return; }
+                                var img = new Image();
+                                img.onload = function () {
+                                    ctx.drawImage(img, it.x, it.y + 48, it.drawW, it.drawH);
+                                    resItem();
+                                };
+                                img.onerror = function () { resItem(); };
+                                img.src = it.dataUrl;
+                            });
+                        })).then(function () {
+                            var jpgUrl = cv.toDataURL ? cv.toDataURL('image/jpeg', 0.92) : '';
+                            var b64 = jpgUrl.split(',')[1] || '';
+                            var bin = typeof atob === 'function' ? atob(b64) : '';
+                            var bytes = new Uint8Array(bin.length);
+                            for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+                            resolve({ w: 1654, h: 2339, bytes: bytes });
+                        });
+                    });
+                }));
+            }).then(function (jpegPages) {
+                var pdfBytes = buildA4PdfBytesFromJpegs(jpegPages);
+                var blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                var cleanName = String(deckTitle || 'Phieu_HS').replace(/[\\/:*?"<>|]/g, '_') + '_HS_A4.pdf';
+                if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+                    var u = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = u; a.download = cleanName;
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(function () { try { URL.revokeObjectURL(u); } catch (e) {} }, 3000);
+                }
+                showToast('Đã xuất PDF A4 (' + jpegPages.length + ' trang tiết kiệm giấy): ' + cleanName, 'success');
+                setStatus('✓ Đã xuất PDF A4: ' + cleanName);
+                return { fileName: cleanName, pages: jpegPages.length, bytes: pdfBytes.length };
+            });
+        }
+        function exportHsDeckZip() {
+            var deck = getActiveDeck();
+            if (!deck || !deck.hsSlides.length) {
+                showToast('Chưa có Phiếu HS A4 nào để xuất ZIP!', 'warning');
+                return Promise.resolve(null);
+            }
+            if (typeof global.JSZip !== 'function') {
+                showToast('Thiếu thư viện JSZip!', 'error');
+                return Promise.resolve(null);
+            }
+            var zip = new global.JSZip();
+            return Promise.all(deck.hsSlides.map(function (sl, i) {
+                return getSlideDataUrl(sl.id).then(function (url) {
+                    var b64 = String(url || '').split(',')[1] || '';
+                    var fn = String(i + 1).padStart(2, '0') + '_HS_' + String(sl.title || 'Phieu').replace(/[\\/:*?"<>|]/g, '_') + '.png';
+                    zip.file(fn, b64, { base64: true });
+                });
+            })).then(function () {
+                return zip.generateAsync({ type: 'blob' });
+            }).then(function (blob) {
+                var cleanName = String(deck.name || 'Phieu_HS').replace(/[\\/:*?"<>|]/g, '_') + '_HS_A4.zip';
+                var u = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = u; a.download = cleanName;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(function () { try { URL.revokeObjectURL(u); } catch (e) {} }, 3000);
+                showToast('Đã xuất ZIP Phiếu HS: ' + cleanName, 'success');
+                return cleanName;
+            });
+        }
+        function exportTopicHsPdf(topicId) {
+            var list = getLibTopicsList();
+            var t = list.find(function (x) { return x && x.id === topicId; });
+            if (!t || !Array.isArray(t.hsSlideKeys) || !t.hsSlideKeys.length) return Promise.resolve(null);
+            var cleanTitle = stripHsSuffix(t.title || t.subtitle || '') || 'BÀI GIẢNG HÓA HỌC';
+            return exportHsSlidesToPdf(t.hsSlideKeys, cleanTitle);
+        }
+        function openPushDialog() {
+            var deck = getActiveDeck();
+            if (!deck || (!deck.slides.length && !deck.hsSlides.length)) {
+                showToast('Bài giảng chưa có trang GV hoặc HS nào!', 'warning');
+                return;
+            }
+            populateDestPickers();
+            var tInp = $('#mm-push-title');
+            if (tInp) tInp.value = deck.name || 'Bài giảng Hóa học';
+            var bd = $('#mm-push-backdrop');
+            if (bd) bd.classList.remove('hidden');
+        }
+        function closePushDialog() {
+            var bd = $('#mm-push-backdrop');
+            if (bd) bd.classList.add('hidden');
+        }
+        function pushDeckToLibrary() {
+            var deck = getActiveDeck();
+            if (!deck || (!deck.slides.length && !deck.hsSlides.length)) {
+                showToast('Bài giảng chưa có slide nào!', 'warning');
+                return null;
+            }
+            var customName = ($('#mm-push-title') && $('#mm-push-title').value.trim()) || deck.name;
+            deck.name = customName;
+            saveDecksMeta();
+            var gVal = ($('#mm-dest-grade') && $('#mm-dest-grade').value) || 'Lớp 12';
+            var grade = gVal === 'ALL' ? 'Lớp 12' : gVal;
+            var folderId = ($('#mm-dest-folder') && $('#mm-dest-folder').value) || null;
+            var now = Date.now();
+            var rawMarkdown = ($('#markdown-editor') && $('#markdown-editor').value) ? String($('#markdown-editor').value) : (deck.minMapMarkdown || '');
+            var createdTopics = [];
+            if (deck.slides && deck.slides.length) {
+                createdTopics.push({
+                    id: 'mm_gv_' + deck.id,
+                    subtitle: '🎬 ' + customName + ' (Slide GV)',
+                    title: customName + ' — Slide GV',
+                    subject: 'Hóa học',
+                    grade: grade,
+                    folderId: folderId || null,
+                    isMinMapDeck: true,
+                    minMapRole: 'gv',
+                    minMapMarkdown: rawMarkdown,
+                    updatedAt: now,
+                    hsSlideKeys: [],
+                    questions: deck.slides.map(function (sl, i) {
+                        return { type: 'mc', obsSlideKey: sl.id, obsSlideData: sl.obsSlideData || '', q: 'Slide ' + (i + 1) + ': ' + (sl.title || ''), opts: [], ans: '' };
+                    })
+                });
+            }
+            if (deck.hsSlides && deck.hsSlides.length) {
+                createdTopics.push({
+                    id: 'mm_hs_' + deck.id,
+                    subtitle: '📄 ' + customName + ' (Phiếu học tập)',
+                    title: customName + ' — Phiếu học tập',
+                    subject: 'Hóa học',
+                    grade: grade,
+                    folderId: folderId || null,
+                    isMinMapDeck: true,
+                    minMapRole: 'hs',
+                    minMapMarkdown: rawMarkdown,
+                    updatedAt: now,
+                    hsSlideKeys: deck.hsSlides.map(function (s) {
+                        return { id: s.id, title: s.title, w: s.w || 794, h: s.h || 500, dataUrl: s.dataUrl || '' };
+                    }),
+                    questions: []
+                });
+            }
+            if (global.LTDLibBridge && typeof global.LTDLibBridge.upsertTopic === 'function') {
+                createdTopics.forEach(function (tObj) { global.LTDLibBridge.upsertTopic(tObj); });
+            } else {
+                var list = getLibTopicsList();
+                createdTopics.forEach(function (tObj) {
+                    var idx = list.findIndex(function (t) { return t && t.id === tObj.id; });
+                    if (idx >= 0) list[idx] = tObj;
+                    else list.push(tObj);
+                });
+                if (!Array.isArray(global.savedTopics)) global.savedTopics = list;
+                try { localStorage.setItem('matrix_quiz_topics_v2', JSON.stringify(list)); } catch (e) {}
+                if (typeof global.renderLibraryList === 'function') try { global.renderLibraryList(); } catch (e) {}
+            }
+            function compressSlideWebp(dataUrl) {
+                if (!dataUrl || typeof Image === 'undefined' || typeof document === 'undefined') return Promise.resolve(dataUrl || '');
+                if (/^data:image\/webp/i.test(dataUrl)) return Promise.resolve(dataUrl);
+                return new Promise(function (resolve) {
+                    try {
+                        var img = new Image();
+                        img.onload = function () {
+                            try {
+                                var cv = document.createElement('canvas');
+                                cv.width = img.naturalWidth || img.width || 794;
+                                cv.height = img.naturalHeight || img.height || 500;
+                                var ctx = cv.getContext('2d');
+                                ctx.fillStyle = '#ffffff';
+                                ctx.fillRect(0, 0, cv.width, cv.height);
+                                ctx.drawImage(img, 0, 0, cv.width, cv.height);
+                                var out = cv.toDataURL ? cv.toDataURL('image/webp', 0.90) : '';
+                                if (!out || !/^data:image\/webp/i.test(out)) {
+                                    out = cv.toDataURL ? cv.toDataURL('image/jpeg', 0.90) : dataUrl;
+                                }
+                                resolve(out || dataUrl);
+                            } catch (e2) { resolve(dataUrl); }
+                        };
+                        img.onerror = function () { resolve(dataUrl); };
+                        img.src = dataUrl;
+                    } catch (e) { resolve(dataUrl); }
+                });
+            }
+            var gvTopicRef = createdTopics.find(function (t) { return t && t.minMapRole === 'gv'; });
+            if (gvTopicRef && gvTopicRef.questions.some(function (q) { return q && q.obsSlideKey && !q.obsSlideData; })) {
+                Promise.all(gvTopicRef.questions.map(function (q) {
+                    var p = q.obsSlideData ? Promise.resolve(q.obsSlideData) : getSlideDataUrl(q.obsSlideKey);
+                    return p.then(compressSlideWebp);
+                })).then(function (urls) {
+                    var changed = false;
+                    urls.forEach(function (u, idx) {
+                        if (u && !gvTopicRef.questions[idx].obsSlideData) {
+                            gvTopicRef.questions[idx].obsSlideData = u;
+                            changed = true;
+                        }
+                    });
+                    if (changed && global.LTDLibBridge && typeof global.LTDLibBridge.upsertTopic === 'function') {
+                        global.LTDLibBridge.upsertTopic(gvTopicRef);
+                    }
+                });
+            }
+            var hsTopicRef = createdTopics.find(function (t) { return t && t.minMapRole === 'hs'; });
+            if (hsTopicRef && hsTopicRef.hsSlideKeys.some(function (k) { return !k.dataUrl; })) {
+                Promise.all(hsTopicRef.hsSlideKeys.map(function (k) {
+                    var p = k.dataUrl ? Promise.resolve(k.dataUrl) : getSlideDataUrl(k.id);
+                    return p.then(compressSlideWebp);
+                })).then(function (urls) {
+                    var changed = false;
+                    urls.forEach(function (u, idx) {
+                        if (u && !hsTopicRef.hsSlideKeys[idx].dataUrl) {
+                            hsTopicRef.hsSlideKeys[idx].dataUrl = u;
+                            changed = true;
+                        }
+                    });
+                    if (changed && global.LTDLibBridge && typeof global.LTDLibBridge.upsertTopic === 'function') {
+                        global.LTDLibBridge.upsertTopic(hsTopicRef);
+                    }
+                });
+            }
+            if (global.GasBridge && typeof global.GasBridge.enqueueTopicSync === 'function') {
+                createdTopics.forEach(function (tObj) { if (tObj && tObj.id) global.GasBridge.enqueueTopicSync(tObj.id); });
+            }
+            closePushDialog();
+            renderDeckDrawer();
+            showToast('Đã đẩy ' + createdTopics.length + ' bản "' + customName + '" (' + deck.slides.length + ' Slide GV · ' + deck.hsSlides.length + ' Phiếu học tập) vào Thư viện!', 'success');
+            setStatus('✓ Đã đẩy ' + createdTopics.length + ' bản vào Thư viện: Hóa học • ' + grade);
+            return createdTopics;
+        }
+        global.LTDMinMapObsStore = {
+            getSlideDataUrl: getSlideDataUrl,
+            saveCurrentSlideToObsDeck: saveCurrentSlideToObsDeck,
+            pushDeckToLibrary: pushDeckToLibrary,
+            exportHsSlidesToPdf: exportHsSlidesToPdf,
+            exportTopicHsPdf: exportTopicHsPdf,
+            stripHsSuffix: stripHsSuffix,
+            packSlidesIntoA4Pages: packSlidesIntoA4Pages,
+            buildA4PdfBytesFromJpegs: buildA4PdfBytesFromJpegs,
+            getDecks: function () { return loadDecksMeta(); }
+        };
+
+        $('#vp-save-obs-deck').addEventListener('click', saveCurrentSlideToObsDeck);
+        $('#vp-open-obs-deck').addEventListener('click', function () {
+            var dr = $('#mm-deck-drawer');
+            if (!dr) return;
+            dr.classList.toggle('hidden');
+            if (!dr.classList.contains('hidden')) renderDeckDrawer();
+        });
+        $('#mm-deck-close').addEventListener('click', function () { $('#mm-deck-drawer').classList.add('hidden'); });
+        $('#mm-deck-select').addEventListener('change', function (e) { _deckState.activeId = e.target.value; renderDeckDrawer(); });
+        $('#mm-tab-gv').addEventListener('click', function () { _deckState.viewTab = 'gv'; renderDeckDrawer(); });
+        $('#mm-tab-hs').addEventListener('click', function () { _deckState.viewTab = 'hs'; renderDeckDrawer(); });
+        $('#mm-export-hs-pdf').addEventListener('click', function () { var d = getActiveDeck(); exportHsSlidesToPdf(d.hsSlides, d.name); });
+        $('#mm-export-hs-zip').addEventListener('click', exportHsDeckZip);
+        $('#mm-dest-grade').addEventListener('change', populateDestPickers);
+        $('#mm-dest-folder-q').addEventListener('input', populateDestPickers);
+        $('#mm-dest-folder').addEventListener('change', function (e) {
+            var sel = e.target;
+            var opt = sel.options && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
+            sel.title = opt ? (opt.title || opt.textContent || '') : '';
+        });
+        $('#mm-deck-new').addEventListener('click', function () {
+            var nm = typeof global.prompt === 'function' ? global.prompt('Nhập tên Bài giảng mới:', 'Bài giảng Quy tắc Octet') : 'Bài giảng mới';
+            if (!nm || !nm.trim()) return;
+            var nd = { id: 'deck_' + Date.now(), name: nm.trim(), slides: [], hsSlides: [] };
+            _deckState.decks.push(nd);
+            _deckState.activeId = nd.id;
+            saveDecksMeta(); renderDeckDrawer();
+        });
+        $('#mm-deck-rename').addEventListener('click', function () {
+            var d = getActiveDeck();
+            var nm = typeof global.prompt === 'function' ? global.prompt('Đổi tên Bài giảng:', d.name) : d.name;
+            if (!nm || !nm.trim()) return;
+            d.name = nm.trim(); saveDecksMeta(); renderDeckDrawer();
+        });
+        $('#mm-deck-del').addEventListener('click', function () {
+            if (_deckState.decks.length <= 1) { getActiveDeck().slides = []; getActiveDeck().hsSlides = []; saveDecksMeta(); renderDeckDrawer(); return; }
+            _deckState.decks = _deckState.decks.filter(function (x) { return x.id !== _deckState.activeId; });
+            _deckState.activeId = _deckState.decks[0].id;
+            saveDecksMeta(); renderDeckDrawer();
+        });
+        $('#mm-deck-slides').addEventListener('click', function (e) {
+            var btn = e.target && e.target.closest ? e.target.closest('button[data-act]') : null;
+            if (!btn) return;
+            var act = btn.getAttribute('data-act');
+            var idx = parseInt(btn.getAttribute('data-idx'), 10);
+            var d = getActiveDeck();
+            var arr = d ? (_deckState.viewTab === 'hs' ? d.hsSlides : d.slides) : null;
+            if (!arr || isNaN(idx)) return;
+            if (act === 'up' && idx > 0) { var t1 = arr[idx]; arr[idx] = arr[idx - 1]; arr[idx - 1] = t1; }
+            else if (act === 'dn' && idx < arr.length - 1) { var t2 = arr[idx]; arr[idx] = arr[idx + 1]; arr[idx + 1] = t2; }
+            else if (act === 'del') { arr.splice(idx, 1); }
+            saveDecksMeta(); renderDeckDrawer();
+        });
+        var _dragSlideIdx = -1;
+        $('#mm-deck-slides').addEventListener('dragstart', function (e) {
+            var it = e.target && e.target.closest ? e.target.closest('.mm-deck-item') : null;
+            if (it) _dragSlideIdx = parseInt(it.getAttribute('data-sidx'), 10);
+        });
+        $('#mm-deck-slides').addEventListener('dragover', function (e) { if (_dragSlideIdx >= 0) e.preventDefault(); });
+        $('#mm-deck-slides').addEventListener('drop', function (e) {
+            var it = e.target && e.target.closest ? e.target.closest('.mm-deck-item') : null;
+            if (!it || _dragSlideIdx < 0) return;
+            var toIdx = parseInt(it.getAttribute('data-sidx'), 10);
+            var d = getActiveDeck();
+            var arr = d ? (_deckState.viewTab === 'hs' ? d.hsSlides : d.slides) : null;
+            if (!isNaN(toIdx) && arr && toIdx !== _dragSlideIdx) {
+                var moved = arr.splice(_dragSlideIdx, 1)[0];
+                arr.splice(toIdx, 0, moved);
+                saveDecksMeta(); renderDeckDrawer();
+            }
+            _dragSlideIdx = -1;
+        });
+        $('#mm-push-lib-btn').addEventListener('click', openPushDialog);
+        $('#mm-push-cancel').addEventListener('click', closePushDialog);
+        $('#mm-push-cancel-btn').addEventListener('click', closePushDialog);
+        $('#mm-push-confirm-btn').addEventListener('click', pushDeckToLibrary);
+        renderDeckDrawer();
+
+        function toggleJustifyAtCursor(e) {
+            var target = e.target;
+            var lineEl = target && target.closest ? target.closest('.vp-line[data-row], .mm-tf-txt[data-row]') : null;
+            var rowIdx = -1;
+            if (lineEl) {
+                rowIdx = parseInt(lineEl.getAttribute('data-row'), 10);
+            } else if (target === ed) {
+                var pos = ed.selectionStart || 0;
+                rowIdx = (ed.value || '').slice(0, pos).split('\n').length - 1;
+            }
+            if (isNaN(rowIdx) || rowIdx < 0) return;
+            var next = state.lineAligns[rowIdx] === 'justify' ? '' : 'justify';
+            state.lineAligns[rowIdx] = next;
+            if (lineEl) {
+                var boxRow = lineEl.classList.contains('mm-tf-txt') && lineEl.closest ? (lineEl.closest('.mm-tf-row') || lineEl) : lineEl;
+                boxRow.classList.toggle('mm-justify', next === 'justify');
+            } else {
+                renderAll();
+            }
+        }
+        modalEl.addEventListener('keydown', function (e) {
+            if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key && e.key.toLowerCase() === 'j') {
+                e.preventDefault();
+                toggleJustifyAtCursor(e);
+            }
+        });
+
+        modalEl.addEventListener('paste', function (e) {
+            var cb = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData);
+            if (!cb || !cb.items) return;
+            for (var i = 0; i < cb.items.length; i++) {
+                if (cb.items[i].type && cb.items[i].type.indexOf('image') !== -1) {
+                    e.preventDefault();
+                    var file = cb.items[i].getAsFile();
+                    if (!file) return;
+                    var reader = new FileReader();
+                    reader.onload = function (ev) {
+                        state.branchImages[state.selectedBranch] = { src: ev.target.result, widthPct: 100 };
+                        $('#mm-img-w-input').value = 100;
+                        setStatus('✓ Đã dán ảnh khít 100% Khung ' + (state.selectedBranch + 1));
+                        renderAll();
+                    };
+                    reader.readAsDataURL(file);
+                    return;
+                }
+            }
+        });
+
+        if (typeof global.ResizeObserver === 'function') {
+            resizeObs = new global.ResizeObserver(fitStage);
+            resizeObs.observe($('.vp-canvas-scroll'));
+        }
+        return modalEl;
+    }
+
+    function open() {
+        buildModal();
+        modalEl.classList.add('open');
+        renderAll();
+    }
+
+    function close() {
+        if (modalEl) modalEl.classList.remove('open');
+    }
+
+    /* [MT-16B-fix] Khoi tao san LTDMinMapObsStore ngay khi nap trang (khong doi mo modal MinMap) */
+    (function initStandaloneObsStore() {
+        var DB_NAME = 'LTD_MINMAP_OBS_DB';
+        var LS_DECKS = 'ltd_minmap_obs_decks_v1';
+        var memSlides = {};
+        function stripHsSuffix(name) {
+            return String(name || '')
+                .replace(/\s*[—–-]\s*Phiếu học tập\s*$/i, '')
+                .replace(/\s*\(Phiếu học tập\)\s*$/i, '')
+                .trim();
+        }
+        function getLibTopicsList() {
+            var list = [];
+            if (global.LTDLibBridge && typeof global.LTDLibBridge.getTopics === 'function') list = global.LTDLibBridge.getTopics();
+            if ((!list || !list.length) && Array.isArray(global.savedTopics) && global.savedTopics.length) list = global.savedTopics;
+            if (!list || !list.length) {
+                try {
+                    var raw = JSON.parse(localStorage.getItem('matrix_quiz_topics_v2') || '[]');
+                    if (Array.isArray(raw)) list = raw;
+                } catch (e) {}
+            }
+            return Array.isArray(list) ? list : [];
+        }
+        function openDb() {
+            return new Promise(function (resolve, reject) {
+                if (typeof indexedDB === 'undefined') return reject(new Error('no-idb'));
+                var req = indexedDB.open(DB_NAME, 1);
+                req.onupgradeneeded = function (ev) {
+                    var db = ev.target.result;
+                    if (!db.objectStoreNames.contains('slides')) db.createObjectStore('slides', { keyPath: 'id' });
+                };
+                req.onsuccess = function () { resolve(req.result); };
+                req.onerror = function () { reject(req.error || new Error('idb-err')); };
+            });
+        }
+        function getSlideDataUrl(id) {
+            if (memSlides[id]) return Promise.resolve(memSlides[id]);
+            return openDb().then(function (db) {
+                return new Promise(function (resolve) {
+                    var tx = db.transaction('slides', 'readonly');
+                    var req = tx.objectStore('slides').get(id);
+                    req.onsuccess = function () {
+                        var val = req.result && req.result.dataUrl ? req.result.dataUrl : '';
+                        if (val) memSlides[id] = val;
+                        resolve(val);
+                    };
+                    req.onerror = function () { resolve(''); };
+                });
+            }).catch(function () { return memSlides[id] || ''; });
+        }
+        function packSlidesIntoA4Pages(items, opts) {
+            opts = opts || {};
+            var pageW = opts.pageW || 1654;
+            var pageH = opts.pageH || 2339;
+            var marginX = opts.marginX || 84;
+            var marginTop = opts.marginTop || 88;
+            var marginBot = opts.marginBot || 88;
+            var usableW = pageW - marginX * 2;
+            var maxImgH = opts.maxImgH || 920;
+            var labelH = 48;
+            var gapY = 44;
+            var pages = [];
+            var curPage = { hasDocTitle: true, items: [] };
+            var curY = marginTop + 96;
+            items.forEach(function (it, idx) {
+                var iw = it.w || 794;
+                var ih = it.h || 500;
+                var scale = Math.min(usableW / iw, maxImgH / ih);
+                var drawW = Math.round(iw * scale);
+                var drawH = Math.round(ih * scale);
+                var blockH = labelH + drawH + gapY;
+                if (curPage.items.length > 0 && curY + blockH > pageH - marginBot) {
+                    pages.push(curPage);
+                    curPage = { hasDocTitle: false, items: [] };
+                    curY = marginTop;
+                }
+                curPage.items.push({
+                    num: idx + 1,
+                    title: it.title || ('Phiếu ' + (idx + 1)),
+                    dataUrl: it.dataUrl || '',
+                    x: Math.round((pageW - drawW) / 2),
+                    y: curY,
+                    drawW: drawW,
+                    drawH: drawH
+                });
+                curY += blockH;
+            });
+            if (curPage.items.length) pages.push(curPage);
+            pages.forEach(function (pg) {
+                if (pg.items.length < 2) return;
+                var topStart = pg.hasDocTitle ? (marginTop + 96) : marginTop;
+                var availH = (pageH - marginBot) - topStart;
+                var usedH = 0;
+                pg.items.forEach(function (it) { usedH += labelH + it.drawH; });
+                var extra = Math.max(0, availH - usedH);
+                var gap = extra / pg.items.length;
+                var cursor = topStart;
+                pg.items.forEach(function (it) {
+                    it.y = Math.round(cursor);
+                    cursor += labelH + it.drawH + gap;
+                });
+            });
+            return pages;
+        }
+        function buildA4PdfBytesFromJpegs(jpegPages) {
+            var objs = [];
+            function addObj(bodyBytes) { objs.push(bodyBytes); return objs.length; }
+            function strBytes(s) { var a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) & 0xff; return a; }
+            function concatBytes(parts) {
+                var total = 0; parts.forEach(function (p) { total += p.length; });
+                var out = new Uint8Array(total), off = 0;
+                parts.forEach(function (p) { out.set(p, off); off += p.length; });
+                return out;
+            }
+            var catalogId = addObj(strBytes(''));
+            var pagesId = addObj(strBytes(''));
+            var pageIds = [];
+            jpegPages.forEach(function (pg, i) {
+                var imgId = addObj(concatBytes([
+                    strBytes('<< /Type /XObject /Subtype /Image /Width ' + pg.w + ' /Height ' + pg.h + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + pg.bytes.length + ' >>\nstream\n'),
+                    pg.bytes,
+                    strBytes('\nendstream')
+                ]));
+                var streamStr = 'q\n595.28 0 0 841.89 0 0 cm\n/Im' + i + ' Do\nQ\n';
+                var contentId = addObj(strBytes('<< /Length ' + streamStr.length + ' >>\nstream\n' + streamStr + 'endstream'));
+                var pageId = addObj(strBytes('<< /Type /Page /Parent ' + pagesId + ' 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im' + i + ' ' + imgId + ' 0 R >> >> /Contents ' + contentId + ' 0 R >>'));
+                pageIds.push(pageId);
+            });
+            objs[catalogId - 1] = strBytes('<< /Type /Catalog /Pages ' + pagesId + ' 0 R >>');
+            objs[pagesId - 1] = strBytes('<< /Type /Pages /Kids [' + pageIds.map(function (id) { return id + ' 0 R'; }).join(' ') + '] /Count ' + pageIds.length + ' >>');
+            var chunks = [strBytes('%PDF-1.4\n')];
+            var offsets = [0], pos = chunks[0].length;
+            objs.forEach(function (body, idx) {
+                offsets.push(pos);
+                var head = strBytes((idx + 1) + ' 0 obj\n');
+                var tail = strBytes('\nendobj\n');
+                chunks.push(head, body, tail);
+                pos += head.length + body.length + tail.length;
+            });
+            var xrefPos = pos;
+            var xref = 'xref\n0 ' + (objs.length + 1) + '\n0000000000 65535 f \n';
+            for (var j = 1; j <= objs.length; j++) xref += String(offsets[j]).padStart(10, '0') + ' 00000 n \n';
+            var trailer = 'trailer\n<< /Size ' + (objs.length + 1) + ' /Root ' + catalogId + ' 0 R >>\nstartxref\n' + xrefPos + '\n%%EOF';
+            chunks.push(strBytes(xref + trailer));
+            return concatBytes(chunks);
+        }
+        function exportHsSlidesToPdf(slidesList, deckTitle) {
+            if (!slidesList || !slidesList.length) {
+                if (global.LTDLibBridge && typeof global.LTDLibBridge.notify === 'function') global.LTDLibBridge.notify('Chưa có phiếu', 'Bài này chưa có Phiếu học tập nào để tải.', 'warning');
+                return Promise.resolve(null);
+            }
+            deckTitle = stripHsSuffix(deckTitle) || 'BÀI GIẢNG';
+            return Promise.all(slidesList.map(function (sl) {
+                return getSlideDataUrl(sl.id).then(function (url) {
+                    return { id: sl.id, title: sl.title, w: sl.w || 794, h: sl.h || 500, dataUrl: url || sl.dataUrl || '' };
+                });
+            })).then(function (resolved) {
+                var pages = packSlidesIntoA4Pages(resolved);
+                return Promise.all(pages.map(function (pg) {
+                    return new Promise(function (resolve) {
+                        var cv = document.createElement('canvas');
+                        cv.width = 1654; cv.height = 2339;
+                        var ctx = cv.getContext('2d');
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, 1654, 2339);
+                        if (pg.hasDocTitle) {
+                            ctx.fillStyle = '#0f172a';
+                            ctx.font = 'bold 44px "Times New Roman", Times, serif';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(String(deckTitle || 'BÀI GIẢNG').toUpperCase(), 827, 132);
+                        }
+                        Promise.all(pg.items.map(function (it) {
+                            return new Promise(function (resItem) {
+                                ctx.fillStyle = '#0f172a';
+                                ctx.font = 'bold 30px "Times New Roman", Times, serif';
+                                ctx.textAlign = 'left';
+                                var cleanSub = String(it.title || '').replace(/^[^\p{L}\p{N}]+/gu, '').replace(/^Câu\s*\d+\s*[:.]\s*/i, '').trim();
+                                ctx.fillText('Câu ' + it.num + ': ' + cleanSub, 84, it.y + 32);
+                                if (!it.dataUrl || typeof Image === 'undefined') { resItem(); return; }
+                                var img = new Image();
+                                img.onload = function () { ctx.drawImage(img, it.x, it.y + 48, it.drawW, it.drawH); resItem(); };
+                                img.onerror = function () { resItem(); };
+                                img.src = it.dataUrl;
+                            });
+                        })).then(function () {
+                            var jpgUrl = cv.toDataURL ? cv.toDataURL('image/jpeg', 0.92) : '';
+                            var b64 = jpgUrl.split(',')[1] || '';
+                            var bin = typeof atob === 'function' ? atob(b64) : '';
+                            var bytes = new Uint8Array(bin.length);
+                            for (var k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+                            resolve({ w: 1654, h: 2339, bytes: bytes });
+                        });
+                    });
+                }));
+            }).then(function (jpegPages) {
+                var pdfBytes = buildA4PdfBytesFromJpegs(jpegPages);
+                var blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                var cleanName = String(deckTitle || 'Phieu_HS').replace(/[\\/:*?"<>|]/g, '_') + '_HS_A4.pdf';
+                if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+                    var u = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = u; a.download = cleanName;
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(function () { try { URL.revokeObjectURL(u); } catch (e) {} }, 3000);
+                }
+                return { fileName: cleanName, pages: jpegPages.length, bytes: pdfBytes.length };
+            });
+        }
+        function exportTopicHsPdf(topicId) {
+            var list = getLibTopicsList();
+            var t = list.find(function (x) { return x && x.id === topicId; });
+            if (!t || !Array.isArray(t.hsSlideKeys) || !t.hsSlideKeys.length) return Promise.resolve(null);
+            var cleanTitle = stripHsSuffix(t.title || t.subtitle || '') || 'BÀI GIẢNG HÓA HỌC';
+            return exportHsSlidesToPdf(t.hsSlideKeys, cleanTitle);
+        }
+        if (!global.LTDMinMapObsStore) {
+            global.LTDMinMapObsStore = {
+                getSlideDataUrl: getSlideDataUrl,
+                exportHsSlidesToPdf: exportHsSlidesToPdf,
+                exportTopicHsPdf: exportTopicHsPdf,
+                stripHsSuffix: stripHsSuffix,
+                packSlidesIntoA4Pages: packSlidesIntoA4Pages,
+                buildA4PdfBytesFromJpegs: buildA4PdfBytesFromJpegs,
+                getDecks: function () {
+                    try { return JSON.parse(localStorage.getItem(LS_DECKS) || '[]'); } catch (e) { return []; }
+                }
+            };
+        }
+    })();
+
+    global.LTDMinMap = {
+        open: open,
+        close: close,
+        renderAll: renderAll,
+        switchTab: switchTab,
+        autoFitTeacher16x9: function () { var b = $('#vp-zoom'); if (b) b.click(); },
+        exportPng: exportPng,
+        checkTeacherOverflow: checkTeacherOverflow,
+        cleanCloneForExport: cleanCloneForExport,
+        safeName: safeName,
+        parseInput: parseInput,
+        ensureTrailingDot: ensureTrailingDot,
+        toggleHighlightSelection: toggleHighlightSelection,
+        getState: function () { return state; }
+    };
+})(window);
