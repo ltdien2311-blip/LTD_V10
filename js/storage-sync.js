@@ -1569,14 +1569,25 @@
         return chain.then(function () { saveMeta(); return n; });
     }
 
+    // [MT-19A-fix] Khi da gan link GAS #1 (khong phai che do 'firebase' thuan), ngung day/keo t/topics & t/folders len Firebase de tiet kiem & chong trung
+    function isDriveLibManaged() {
+        try {
+            if (!window.GasBridge || typeof window.GasBridge.getConfig !== 'function') return false;
+            var gCfg = window.GasBridge.getConfig();
+            return !!(gCfg && gCfg.mode !== 'firebase' && Array.isArray(gCfg.urls) && gCfg.urls.length > 0);
+        } catch (e) { return false; }
+    }
+
     function pushTeacher() {
         var entries = [];
         collect('results', localMap('results'), entries, true);
         collect('pub', pubDesired(), entries, true);
         collect('pubfolders', pubFoldersDesired(), entries, true);
         if (S.cfg) {
-            collect('topics', localMap('topics'), entries, true);
-            collect('folders', localMap('folders'), entries, true);
+            if (!isDriveLibManaged()) {
+                collect('topics', localMap('topics'), entries, true);
+                collect('folders', localMap('folders'), entries, true);
+            }
             collect('classes', localMap('classes'), entries, true);
         }
         return sendEntries(entries);
@@ -1645,7 +1656,18 @@
             var D = g('deletedTopicIds'); if (Array.isArray(D) && D.indexOf(key) >= 0) { (0, eval)('deletedTopicIds = deletedTopicIds.filter(function(x){return x!==' + JSON.stringify(key) + '})'); }
         } else if (kind === 'folders') {
             var F = g('libraryFolders'), j = F.findIndex(function (f) { return f && f.id === key; });
-            if (j >= 0) F[j] = obj; else F.push(obj);
+            if (j >= 0) {
+                F[j] = obj;
+            } else {
+                var normF2 = function (s) { return String(s || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim(); };
+                var dupF = F.find(function (f) {
+                    if (!f || !f.id) return false;
+                    return normF2(f.subject || '') === normF2(obj.subject || '') &&
+                        String(f.parentId || '') === String(obj.parentId || '') &&
+                        normF2(f.name || '') === normF2(obj.name || '');
+                });
+                if (!dupF) F.push(obj);
+            }
             var DF = g('deletedFolderIds'); if (Array.isArray(DF) && DF.indexOf(key) >= 0) { (0, eval)('deletedFolderIds = deletedFolderIds.filter(function(x){return x!==' + JSON.stringify(key) + '})'); }
         } else if (kind === 'classes') {
             var C = g('classesData'), k = C.findIndex(function (c) { return c && c.id === key; });
@@ -1757,7 +1779,7 @@
             return Promise.all([p0, p1]).then(function () {
                 var jobs = [];
                 if (S.cfg) {
-                    ['topics', 'folders', 'classes'].forEach(function (kind) {
+                    (isDriveLibManaged() ? ['classes'] : ['topics', 'folders', 'classes']).forEach(function (kind) {
                         /* [CODE74] Phục hồi khi localStorage bị xóa/không đầy đủ nhưng metadata đồng bộ cũ vẫn còn.
                            Trước đây chỉ nhìn revision Firebase; nếu revision không đổi, máy mới hoặc máy bị mất
                            dữ liệu sẽ bỏ qua GET và tiếp tục hiển thị danh sách rỗng. */
@@ -3802,11 +3824,27 @@
                 return { ok: false, error: (res && res.error) || 'Chưa có Mục lục LIB_INDEX_V2 trên Drive.' };
             }
             var idxData = res.data;
+            var folderIdRemap = {};
             if (Array.isArray(idxData.folders) && idxData.folders.length) {
                 var curFolders = getGlobalVarSafe('libraryFolders', null);
+                var normF = function (s) { return String(s || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim(); };
                 if (Array.isArray(curFolders)) {
                     idxData.folders.forEach(function (f) {
-                        if (f && f.id && !curFolders.some(function (x) { return x && x.id === f.id; })) curFolders.push(f);
+                        if (!f || !f.id) return;
+                        if (curFolders.some(function (x) { return x && x.id === f.id; })) return;
+                        var pid = f.parentId && folderIdRemap[f.parentId] ? folderIdRemap[f.parentId] : (f.parentId || '');
+                        var dup = curFolders.find(function (x) {
+                            if (!x || !x.id) return false;
+                            return normF(x.subject || '') === normF(f.subject || '') &&
+                                String(x.parentId || '') === String(pid) &&
+                                normF(x.name || '') === normF(f.name || '');
+                        });
+                        if (dup) {
+                            folderIdRemap[f.id] = dup.id;
+                        } else {
+                            if (f.parentId && folderIdRemap[f.parentId]) f.parentId = folderIdRemap[f.parentId];
+                            curFolders.push(f);
+                        }
                     });
                     try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(curFolders)); } catch (e) { }
                 } else {
@@ -3845,6 +3883,7 @@
                         return Promise.all(slice.map(function (rt) { return loadTopicFromDrive(rt.id); })).then(function (tResList) {
                             tResList.forEach(function (tr) {
                                 if (tr && tr.ok && tr.data && tr.data.id) {
+                                    if (tr.data.folderId && folderIdRemap[tr.data.folderId]) tr.data.folderId = folderIdRemap[tr.data.folderId];
                                     upsertLocalTopicSafe(tr.data);
                                     pulledCount++;
                                 }
@@ -3859,6 +3898,7 @@
             }
 
             return chain.then(function () {
+                try { if (typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.dedupeFolders === 'function') window.LTDLibBridge.dedupeFolders(); } catch (e) { }
                 try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) { }
                 try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) { }
                 return { ok: true, pulledCount: pulledCount, totalInIndex: remoteList.length };
