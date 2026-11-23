@@ -11923,6 +11923,9 @@ const COLS = 24;
         window.startBankPractice = startBankPractice;
 
         function openLibrary() {
+            if (isStudentMode && window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled() && typeof window.GasBridge.pullPublishedForStudent === 'function') {
+                window.GasBridge.pullPublishedForStudent();
+            }
             if (libCurrentFolderId && !getFolderById(libCurrentFolderId)) libCurrentFolderId = null;
             renderLibraryList();
             const modal = document.getElementById('library-modal');
@@ -11963,38 +11966,158 @@ const COLS = 24;
             setTimeout(() => { modal.classList.add('hidden'); }, 300);
         }
 
-        function togglePublishTopic(id) {
-            if (isStudentMode) return;
+        function _normClassName(s) {
+            return String(s || '').normalize('NFC').replace(/\s+/g, '').toLowerCase();
+        }
+        function _inferGradeFromClass(cls) {
+            const c = String(cls || '').trim();
+            const m = c.match(/\b(10|11|12)/);
+            return m ? ('Lớp ' + m[1]) : '';
+        }
+        function isTopicAllowedForStudent(t) {
+            if (!t || !Boolean(t.isPublished)) return false;
+            const sc = t.publishScope;
+            if (!sc || !sc.mode || sc.mode === 'all') return true;
+            let stuCls = '';
+            try {
+                if (typeof getStudentIdentity === 'function') {
+                    const id = getStudentIdentity();
+                    if (id && id.cls) stuCls = String(id.cls).trim();
+                }
+            } catch (e) {}
+            if (!stuCls) return false; // Bắt buộc đăng nhập HS có Lớp cho phạm vi Khối/Lớp
+            if (sc.mode === 'grades') {
+                const g = _inferGradeFromClass(stuCls);
+                const gs = Array.isArray(sc.grades) ? sc.grades : [];
+                return !!(g && gs.indexOf(g) >= 0);
+            }
+            if (sc.mode === 'classes') {
+                const nc = _normClassName(stuCls);
+                const cList = Array.isArray(sc.classNames) ? sc.classNames : [];
+                const idList = Array.isArray(sc.classIds) ? sc.classIds : [];
+                if (cList.some(x => _normClassName(x) === nc)) return true;
+                if (Array.isArray(classesData) && idList.length) {
+                    return classesData.some(c => c && idList.indexOf(c.id) >= 0 && _normClassName(c.name) === nc);
+                }
+                return false;
+            }
+            return true;
+        }
+        window.LTDIsTopicAllowedForStudent = isTopicAllowedForStudent;
+
+        function formatPublishScopeLabel(sc) {
+            if (!sc || !sc.mode || sc.mode === 'all') return '🌐 Tất cả';
+            if (sc.mode === 'grades') {
+                const gs = Array.isArray(sc.grades) ? sc.grades : [];
+                return gs.length ? ('🎓 ' + gs.join(', ')) : '🎓 Theo Khối';
+            }
+            if (sc.mode === 'classes') {
+                const cs = Array.isArray(sc.classNames) ? sc.classNames : [];
+                return cs.length ? ('🏫 ' + cs.slice(0, 3).join(', ') + (cs.length > 3 ? '…' : '')) : '🏫 Theo Lớp';
+            }
+            return '🌐 Tất cả';
+        }
+
+        function commitPublishTopic(id, newStatus, scopeObj) {
             const idx = savedTopics.findIndex(t => t.id === id);
             if (idx === -1) return;
-
-            const newStatus = !Boolean(savedTopics[idx].isPublished);
             savedTopics[idx].isPublished = newStatus;
+            if (scopeObj) savedTopics[idx].publishScope = scopeObj;
             savedTopics[idx].updatedAt = Date.now();
-
             if (Array.isArray(window.__PRELOADED_LIBRARY__)) {
                 const pIdx = window.__PRELOADED_LIBRARY__.findIndex(t => t.id === id);
                 if (pIdx !== -1) {
                     window.__PRELOADED_LIBRARY__[pIdx].isPublished = newStatus;
+                    if (scopeObj) window.__PRELOADED_LIBRARY__[pIdx].publishScope = scopeObj;
                     window.__PRELOADED_LIBRARY__[pIdx].updatedAt = savedTopics[idx].updatedAt;
                 }
             }
-
             markTopicLocallyModified(id);
             saveToStorage();
             renderLibraryList();
 
-            try {
-                if (window.CloudSync) {
+            if (window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled() && typeof window.GasBridge.publishTopicToDrive === 'function') {
+                window.GasBridge.publishTopicToDrive(savedTopics[idx]);
+            } else if (window.CloudSync) {
+                try {
                     if (newStatus && typeof CloudSync.publishNow === 'function') CloudSync.publishNow(id);
                     else if (typeof CloudSync.schedule === 'function') CloudSync.schedule(true);
-                }
-            } catch (e) {}   // [MT-21] đưa đề/phiếu lên máy chủ ngay
+                } catch (e) {}
+            }
             if (newStatus) {
-                openPublishLinkModal(id, true);   // [CODE78] hiện LINK LÀM BÀI để sao chép / chia sẻ
+                openPublishLinkModal(id, true);
                 return;
             }
             showModal('Đã hủy xuất bản', `Chủ đề "${savedTopics[idx].subtitle}" đã được ẩn khỏi mục Thư viện của Học sinh.`, 'info');
+        }
+
+        function openPublishScopeModal(topicId) {
+            const topic = savedTopics.find(t => t.id === topicId);
+            if (!topic) return;
+            const old = document.getElementById('pub-scope-modal');
+            if (old) old.remove();
+            const curSc = topic.publishScope || { mode: 'all', grades: [topic.grade || 'Lớp 12'], classIds: [], classNames: [] };
+            const clsList = Array.isArray(classesData) ? classesData : [];
+            const ov = document.createElement('div');
+            ov.id = 'pub-scope-modal';
+            ov.style.cssText = 'position:fixed;inset:0;z-index:100010;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:12px;font-family:"Segoe UI",system-ui,sans-serif';
+            const clsChecks = clsList.length
+                ? clsList.map(c => {
+                    const checked = Array.isArray(curSc.classIds) && curSc.classIds.indexOf(c.id) >= 0;
+                    return `<label style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:8px;background:#fff;font-weight:700;cursor:pointer"><input type="checkbox" class="ps-cls-chk" value="${_escHtml(c.id)}" data-name="${_escHtml(c.name)}" ${checked ? 'checked' : ''}> ${_escHtml(c.name)}</label>`;
+                }).join('')
+                : '<span style="color:#64748b;font-size:13px">Chưa có lớp nào trong Quản lí lớp học.</span>';
+            ov.innerHTML =
+                `<div style="background:#fff;border-radius:18px;width:100%;max-width:520px;box-shadow:0 24px 60px rgba(0,0,0,.3);overflow:hidden">` +
+                `  <div style="padding:14px 18px;background:linear-gradient(90deg,#ea580c,#d97706);color:#fff;display:flex;justify-content:space-between;align-items:center">` +
+                `    <div style="font-size:16px;font-weight:900">🚀 CHỌN PHẠM VI XUẤT BẢN</div>` +
+                `    <button type="button" id="ps-close" style="background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:8px;padding:4px 10px;font-weight:900;cursor:pointer">✕</button>` +
+                `  </div>` +
+                `  <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">` +
+                `    <div style="font-weight:800;color:#0f172a">Bài: ${_escHtml(topic.subtitle || topic.title || '')}</div>` +
+                `    <label style="display:flex;align-items:center;gap:8px;padding:10px;border:1.5px solid #cbd5e1;border-radius:10px;cursor:pointer;font-weight:800"><input type="radio" name="ps-mode" value="all" ${curSc.mode === 'all' ? 'checked' : ''}> 🌐 Tất cả học sinh</label>` +
+                `    <div style="padding:10px;border:1.5px solid #cbd5e1;border-radius:10px">` +
+                `      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:800"><input type="radio" name="ps-mode" value="grades" ${curSc.mode === 'grades' ? 'checked' : ''}> 🎓 Theo Khối (HS phải đăng nhập có Lớp)</label>` +
+                `      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;padding-left:22px">` +
+                `        ${['Lớp 10', 'Lớp 11', 'Lớp 12'].map(g => `<label style="display:inline-flex;align-items:center;gap:5px;font-weight:700"><input type="checkbox" class="ps-grd-chk" value="${g}" ${(Array.isArray(curSc.grades) && curSc.grades.indexOf(g) >= 0) ? 'checked' : ''}> ${g}</label>`).join('')}` +
+                `      </div>` +
+                `    </div>` +
+                `    <div style="padding:10px;border:1.5px solid #cbd5e1;border-radius:10px">` +
+                `      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:800"><input type="radio" name="ps-mode" value="classes" ${curSc.mode === 'classes' ? 'checked' : ''}> 🏫 Theo từng Lớp (HS phải đăng nhập đúng Lớp)</label>` +
+                `      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding-left:22px">${clsChecks}</div>` +
+                `    </div>` +
+                `    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px">` +
+                `      <button type="button" id="ps-cancel" style="padding:9px 14px;border-radius:10px;border:none;background:#e2e8f0;color:#334155;font-weight:800;cursor:pointer">Hủy</button>` +
+                `      <button type="button" id="ps-confirm" style="padding:9px 16px;border-radius:10px;border:none;background:linear-gradient(90deg,#ea580c,#d97706);color:#fff;font-weight:900;cursor:pointer">🚀 Xác nhận Xuất bản</button>` +
+                `    </div>` +
+                `  </div>` +
+                `</div>`;
+            document.body.appendChild(ov);
+            ov.querySelector('#ps-close').onclick = () => ov.remove();
+            ov.querySelector('#ps-cancel').onclick = () => ov.remove();
+            ov.querySelector('#ps-confirm').onclick = () => {
+                const mode = (ov.querySelector('input[name="ps-mode"]:checked') || {}).value || 'all';
+                const grades = Array.from(ov.querySelectorAll('.ps-grd-chk:checked')).map(el => el.value);
+                const clsEls = Array.from(ov.querySelectorAll('.ps-cls-chk:checked'));
+                const classIds = clsEls.map(el => el.value);
+                const classNames = clsEls.map(el => el.getAttribute('data-name') || '');
+                if (mode === 'grades' && !grades.length) { alert('Hãy chọn ít nhất 1 Khối!'); return; }
+                if (mode === 'classes' && !classIds.length) { alert('Hãy chọn ít nhất 1 Lớp!'); return; }
+                ov.remove();
+                commitPublishTopic(topicId, true, { mode, grades, classIds, classNames });
+            };
+        }
+
+        function togglePublishTopic(id) {
+            if (isStudentMode) return;
+            const idx = savedTopics.findIndex(t => t.id === id);
+            if (idx === -1) return;
+            const newStatus = !Boolean(savedTopics[idx].isPublished);
+            if (newStatus) {
+                openPublishScopeModal(id);
+                return;
+            }
+            commitPublishTopic(id, false, null);
         }
 
         // ===================== [CODE78] LINK LÀM BÀI SAU KHI XUẤT BẢN =====================
@@ -12292,7 +12415,7 @@ const COLS = 24;
         function folderDeepStats(fid) {
             let topics = 0, published = 0, folders = 0;
             const walk = id => {
-                savedTopics.forEach(t => { if (t.folderId === id) { topics++; if (t.isPublished) published++; } });
+                savedTopics.forEach(t => { if (t.folderId === id) { topics++; if (isStudentMode ? isTopicAllowedForStudent(t) : t.isPublished) published++; } });
                 libraryFolders.filter(f => f.parentId === id).forEach(c => { folders++; walk(c.id); });
             };
             walk(fid);
@@ -12650,7 +12773,7 @@ const COLS = 24;
             const _noAcc = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
             const _libSearchQ = _noAcc((document.getElementById('lib-search-input')?.value || '').trim());
             const topicVisible = t => {
-                if (isStudentMode && !Boolean(t.isPublished)) return false;
+                if (isStudentMode && !isTopicAllowedForStudent(t)) return false;
                 if (filterGrade !== 'ALL' && t.grade !== filterGrade) return false;
                 if (_libSearchQ && !_noAcc(t.subtitle || t.title || '').includes(_libSearchQ)) return false;
                 return true;
@@ -12665,7 +12788,7 @@ const COLS = 24;
                 const publishBadgeHtml = isStudentMode
                     ? ''
                     : (isPub
-                        ? ''
+                        ? `<span class="px-2.5 py-0.5 rounded-full text-[13px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">${_escHtml(formatPublishScopeLabel(topic.publishScope))}</span>`
                         : `<span class="px-2.5 py-0.5 rounded-full text-[15px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300">⏳ Chưa xuất bản</span>`);
 
                 const publishBtnHtml = isPub
@@ -12686,7 +12809,7 @@ const COLS = 24;
                 const actionButtonsHtml = isStudentMode
                     ? (topic.isMinMapDeck && topic.minMapRole === 'hs'
                         ? `
-                            ${Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length ? `<button type="button" onclick="window.LTDMinMapObsStore && window.LTDMinMapObsStore.exportTopicHsPdf('${topic.id}')" class="px-4 py-2.5 rounded-xl font-black text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-md text-[14px] normal-case transition-transform active:scale-95" title="Tải Phiếu học tập khổ A4 (.pdf)">📄 Tải Phiếu học tập (${topic.hsSlideKeys.length})</button>` : ''}
+                            ${((Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length) || Number(topic.hsCount || 0) > 0) ? `<button type="button" onclick="loadTopic('${topic.id}')" class="px-4 py-2.5 rounded-xl font-black text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-md text-[14px] normal-case transition-transform active:scale-95" title="Tải Phiếu học tập HS khổ A4 (.pdf)">📄 Tải Phiếu học tập (${(Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length) ? topic.hsSlideKeys.length : topic.hsCount})</button>` : ''}
                             ${stuVideoBtnHtml}
                         `
                         : `
@@ -12881,7 +13004,7 @@ const COLS = 24;
                 head.className = 'flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-gradient-to-r from-purple-100 to-indigo-100';
                 const title = document.createElement('div');
                 title.className = 'flex items-center gap-2 text-[22px] font-black text-purple-900 uppercase';
-                const totalTopics = savedTopics.filter(t => t.subject === subject && (!isStudentMode || t.isPublished)).length;
+                const totalTopics = savedTopics.filter(t => t.subject === subject && (!isStudentMode || isTopicAllowedForStudent(t))).length;
                 title.innerHTML = `📚 ${_escHtml(libSubjLabel(subject))} <span class="text-[14px] font-black text-purple-700 bg-white/70 px-2.5 py-0.5 rounded-full normal-case">${totalTopics} đề thi</span>`;
                 head.appendChild(title);
                 if (!isStudentMode) {
@@ -12950,17 +13073,35 @@ const COLS = 24;
 
         function loadTopic(id) {
             const topic = savedTopics.find(t => t.id === id);
-            if (topic) {
-                if (topic.isMinMapDeck && topic.minMapRole === 'hs' && Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length) {
-                    if (window.LTDMinMapObsStore && typeof window.LTDMinMapObsStore.exportTopicHsPdf === 'function') {
-                        window.LTDMinMapObsStore.exportTopicHsPdf(topic.id);
+            if (!topic) return;
+            const needsLazy = (topic.isMinMapDeck && topic.minMapRole === 'hs')
+                ? !(Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length && topic.hsSlideKeys[0] && topic.hsSlideKeys[0].dataUrl)
+                : !(Array.isArray(topic.questions) && topic.questions.length);
+            if (needsLazy && window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled() && typeof window.GasBridge.ensureTopicLoadedFromDrive === 'function') {
+                window.GasBridge.ensureTopicLoadedFromDrive(id).then(res => {
+                    const loaded = (res && res.ok && res.data) ? res.data : savedTopics.find(t => t.id === id);
+                    if (!loaded) return;
+                    if (loaded.isMinMapDeck && loaded.minMapRole === 'hs' && Array.isArray(loaded.hsSlideKeys) && loaded.hsSlideKeys.length) {
+                        if (window.LTDMinMapObsStore && typeof window.LTDMinMapObsStore.exportTopicHsPdf === 'function') {
+                            window.LTDMinMapObsStore.exportTopicHsPdf(loaded.id);
+                        }
+                        closeLibrary();
+                        return;
                     }
+                    applyTopic(loaded);
                     closeLibrary();
-                    return;
-                }
-                applyTopic(topic);
-                closeLibrary();
+                });
+                return;
             }
+            if (topic.isMinMapDeck && topic.minMapRole === 'hs' && Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length) {
+                if (window.LTDMinMapObsStore && typeof window.LTDMinMapObsStore.exportTopicHsPdf === 'function') {
+                    window.LTDMinMapObsStore.exportTopicHsPdf(topic.id);
+                }
+                closeLibrary();
+                return;
+            }
+            applyTopic(topic);
+            closeLibrary();
         }
 
         function editTopicFromLibrary(id) {

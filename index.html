@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="vi"><head>
-<meta charset="UTF-8"><meta name="referrer" content="strict-origin-when-cross-origin"><script id="embedded-library-script" src="js/embedded-data.js?v=mt19c"></script>
+<meta charset="UTF-8"><meta name="referrer" content="strict-origin-when-cross-origin"><script id="embedded-library-script" src="js/embedded-data.js?v=mt22b"></script>
 <!-- CODE170: CHƠI TRỰC TIẾP: kênh kết nối qua Firebase (HTTPS) khi giáo viên đã ĐỒNG BỘ -> học sinh vào được phòng ở mọi mạng (4G, wifi trường); không có Firebase thì dùng PeerJS với STUN/TURN bổ sung; học sinh tự thử lại và báo đúng lỗi. -->
 <!-- CODE169: XUẤT WORD (Trộn đề): ảnh nổi có chữ bao quanh được xuất thành ảnh nổi (wrapSquare) trái / phải, chữ chạy bao quanh đúng như file Word nguồn. -->
 <!-- CODE168: NHẬP WORD: ảnh nổi có chữ bao quanh (Square / Tight / Through) hiển thị đúng như Word - ảnh nằm trái hoặc phải, chữ chạy bao quanh; CODE167: căn lề đoạn chữ, ô bảng, gạch chân. Chạy trên GitHub Pages (index.html). -->
@@ -292,6 +292,15 @@ window.SAKB = {
                 <button id="btn-minmap-sidebar" type="button" onclick="if (window.LTDMinMap) LTDMinMap.open()" title="Soạn và xuất Sơ đồ tư duy 1920x1080 &amp; A4 Cloze" class="side-btn teacher-only-btn" style="background:linear-gradient(135deg,#059669,#0d9488);color:#fff">
                     🗺️ MINMAP
                 </button>
+                <div class="teacher-only-btn grid grid-cols-2 gap-1.5">
+                    <button id="btn-main-push-drive" type="button" onclick="window.CloudSync && CloudSync.quickPushDriveMain && CloudSync.quickPushDriveMain()" title="Đẩy Thư viện &amp; MinMap lên Google Drive (GAS #1)" class="side-btn" style="background:linear-gradient(135deg,#0284c7,#2563eb);color:#fff;font-size:12px;padding:8px 6px">
+                        ☁️ ĐẨY DRIVE
+                    </button>
+                    <button id="btn-main-pull-drive" type="button" onclick="window.CloudSync && CloudSync.quickPullDriveMain && CloudSync.quickPullDriveMain()" title="Kéo Thư viện &amp; MinMap từ Google Drive (GAS #1)" class="side-btn" style="background:linear-gradient(135deg,#0d9488,#059669);color:#fff;font-size:12px;padding:8px 6px">
+                        ⬇️ KÉO DRIVE
+                    </button>
+                </div>
+                <div id="main-drive-status" class="teacher-only-btn hidden text-[11px] font-bold px-2 py-1 rounded-lg bg-slate-100 text-slate-700 leading-snug"></div>
                 <button type="button" id="btn-logout" onclick="logoutApp()" title="Đăng xuất khỏi hệ thống" class="side-btn bg-red-600">
                     ĐĂNG XUẤT
                 </button>
@@ -970,6 +979,13 @@ window.SAKB = {
                     </button></div>
                 </div>
                 <div id="cm-tabs" class="hidden px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex flex-wrap gap-1.5 shrink-0"></div>
+                <div id="cm-gas-toolbar" class="no-print px-3 py-2 bg-indigo-50/80 border-b border-indigo-200 flex flex-wrap items-center gap-2 shrink-0">
+                    <button type="button" onclick="window.HSAuth && window.HSAuth.openManager && window.HSAuth.openManager()" class="px-3 py-1.5 rounded-xl font-black text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 shadow-sm text-xs uppercase">👥 Quản lý Tài khoản HS</button>
+                    <button type="button" onclick="window.CloudSync && CloudSync.syncClassesAndAccountsGas()" class="px-3 py-1.5 rounded-xl font-black text-white bg-teal-600 hover:bg-teal-700 shadow-sm text-xs uppercase">🏫 Đồng bộ Lớp &amp; TK lên Sheets</button>
+                    <button type="button" onclick="window.CloudSync && CloudSync.pullClassesAndAccountsGas()" class="px-3 py-1.5 rounded-xl font-black text-white bg-sky-600 hover:bg-sky-700 shadow-sm text-xs uppercase">⬇️ Tải Lớp &amp; TK từ Sheets</button>
+                    <button type="button" onclick="window.CloudSync && CloudSync.pullAllResults()" class="px-3 py-1.5 rounded-xl font-black text-white bg-purple-600 hover:bg-purple-700 shadow-sm text-xs uppercase">⬇️ Tải Kết quả từ Sheets</button>
+                    <span id="cm-gas-status" class="text-xs font-extrabold text-slate-700"></span>
+                </div>
                 <div id="cm-body" class="flex-1 overflow-y-auto custom-scrollbar p-3 bg-slate-100"></div>
                 <div class="px-3 py-1.5 bg-white border-t border-slate-200 flex flex-wrap justify-end items-center gap-2 shrink-0">
                     <button type="button" onclick="cmCloseStep()" class="px-6 py-2 rounded-xl font-black text-slate-700 bg-slate-200 hover:bg-slate-300 uppercase text-sm">Đóng</button>
@@ -1158,11 +1174,11 @@ window.SAKB = {
         </div>
     </div>
 
-    <script src="js/storage-sync.js?v=mt20"></script>
+    <script src="js/storage-sync.js?v=mt22"></script>
     
     
     
-    <script src="js/quiz-core.js?v=mt19b"></script>
+    <script src="js/quiz-core.js?v=mt21b"></script>
     <script>
         // [CODE28] Điện thoại: thu gọn mục chia điểm mặc định để thấy câu hỏi ngay (bấm tiêu đề để mở rộng)
         (function(){

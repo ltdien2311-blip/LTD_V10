@@ -1587,20 +1587,20 @@
     }
 
     function pushTeacher() {
+        if (isDriveLibManaged()) return Promise.resolve(0);
         var entries = [];
         collect('results', localMap('results'), entries, true);
         collect('pub', pubDesired(), entries, true);
         collect('pubfolders', pubFoldersDesired(), entries, true);
         if (S.cfg) {
-            if (!isDriveLibManaged()) {
-                collect('topics', localMap('topics'), entries, true);
-                collect('folders', localMap('folders'), entries, true);
-            }
+            collect('topics', localMap('topics'), entries, true);
+            collect('folders', localMap('folders'), entries, true);
             collect('classes', localMap('classes'), entries, true);
         }
         return sendEntries(entries);
     }
     function pushStudent() {
+        if (isDriveLibManaged()) return Promise.resolve(0);
         var entries = [];
         collect('results', localMap('results'), entries, false);
         return sendEntries(entries);
@@ -1774,6 +1774,7 @@
     }
 
     function pullTeacher() {
+        if (isDriveLibManaged()) return Promise.resolve({});
         var ch = {};
         S.pullErr = null;
         var pT = S.cfg ? req('GET', 't', 'rev').catch(function () { return {}; }) : Promise.resolve({});
@@ -1868,6 +1869,12 @@
     }
 
     function pullStudent() {
+        if (isDriveLibManaged()) {
+            if (window.GasBridge && typeof window.GasBridge.pullPublishedForStudent === 'function') {
+                return window.GasBridge.pullPublishedForStudent().then(function () { return {}; }).catch(function () { return {}; });
+            }
+            return Promise.resolve({});
+        }
         var ch = {};
         return req('GET', 's', 'rev').then(function (rs) {
             rs = rs || {};
@@ -2464,82 +2471,64 @@
 
         if (teacherReady()) {
             h += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
-                '<button type="button" onclick="CloudSync.syncNow()" style="' + btn('linear-gradient(90deg,#059669,#0d9488)') + '">🔄 Đồng bộ ngay</button>' +
-                '<button type="button" onclick="CloudSync.checkServer()" style="' + btn('#2563eb') + '">🔍 Kiểm tra kết quả học sinh</button>' +
-                '<button type="button" onclick="CloudSync.pullAllResults()" style="' + btn('#7c3aed') + '">⬇️ Tải &amp; Gộp tất cả kết quả về máy</button>' +
-                '<button type="button" onclick="CloudSync.downloadConfigJson()" style="' + btn('#0369a1') + '" title="Đặt cạnh index.html trên GitHub để mọi máy tự nhận đúng kho">📄 Tải cloud-config.json</button>' +
-                (c ? '<button type="button" onclick="CloudSync.disconnect()" style="' + btn('#dc2626') + '">Ngắt kết nối</button>' : '') +
+                '<button type="button" onclick="CloudSync.pushLibraryToDriveGas()" style="' + btn('linear-gradient(90deg,#0284c7,#2563eb)') + '">☁️ Đẩy Thư viện &amp; MinMap lên Drive</button>' +
+                '<button type="button" onclick="CloudSync.pullLibraryFromDriveGas()" style="' + btn('linear-gradient(90deg,#059669,#0d9488)') + '">⬇️ Kéo Thư viện &amp; MinMap từ Drive</button>' +
+                '<button type="button" onclick="CloudSync.testGasConnection()" style="' + btn('#0f766e') + '">🔌 Kiểm tra kết nối</button>' +
+                '<button type="button" onclick="CloudSync.syncNow()" style="' + btn('#4f46e5') + '">🔄 Đồng bộ Live</button>' +
+                '</div>';
+        } else {
+            h += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
+                '<button type="button" onclick="CloudSync.testGasConnection()" style="' + btn('#0f766e') + '">🔌 Kiểm tra kết nối</button>' +
                 '</div>';
         }
+        h += '<div id="gas-test-status" style="margin-top:10px"></div>';
         if (S.diag) h += '<div style="margin-top:8px;padding:10px 14px;border-radius:12px;background:#f1f5f9;font-weight:700;font-size:13.5px;line-height:1.55;color:#0f172a;white-space:pre-wrap">' + esc(S.diag) + '</div>';
 
-        // [HƯỚNG A - MICRO-TASK 2] Cấu hình Máy chủ Google Apps Script + Chế độ 2 tầng
         var gCfg = window.GasBridge ? window.GasBridge.getConfig() : { mode: 'hybrid', urls: [], key: '' };
         var gMode = keepGas.mode || gCfg.mode || 'hybrid';
         var gUrlsTxt = (typeof keepGas.urls === 'string') ? keepGas.urls : (gCfg.urls || []).join('\n');
         var gKeyVal = (typeof keepGas.key === 'string') ? keepGas.key : (gCfg.key || '');
         var gCount = (gCfg.urls || []).length;
-        h += '<div style="margin-top:14px;padding:14px;border-radius:16px;background:#f8fafc;border:2px solid #0ea5e9">' +
-            '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
-            '<div style="font-size:16px;font-weight:900;color:#0369a1">🚀 MÁY CHỦ HƯỚNG A (Google Apps Script + GitHub Pages)</div>' +
-            '<span style="font-size:12px;font-weight:800;padding:3px 10px;border-radius:999px;background:' + (gCount ? '#dcfce7;color:#166534' : '#e2e8f0;color:#475569') + '">' + (gCount ? 'Đã gắn ' + gCount + ' link' : 'Chưa gắn link') + '</span></div>' +
-            '<div style="margin-top:8px;font-size:13px;font-weight:600;color:#334155;line-height:1.45">Gắn 1 hoặc nhiều link Web App (<code>/exec</code>) từ Google Sheets để lưu điểm chính thức &amp; tự động dự phòng khi lớp đông.</div>' +
-            '<div style="margin-top:10px"><label style="font-weight:900;font-size:13.5px;color:#0f172a">1) Chế độ vận hành</label>' +
-            '<select id="gas-mode" style="' + inp + ';background:#fff;font-size:14px">' +
-            '<option value="hybrid"' + (gMode === 'hybrid' ? ' selected' : '') + '>Hướng A — Tự động 2 tầng (Khuyên dùng: Firebase Live + Apps Script lưu điểm &amp; dự phòng)</option>' +
-            '<option value="gas"' + (gMode === 'gas' ? ' selected' : '') + '>Chỉ Google Apps Script + Google Sheets (Không dùng Firebase)</option>' +
-            '<option value="firebase"' + (gMode === 'firebase' ? ' selected' : '') + '>Chỉ Firebase (Chế độ cũ)</option>' +
-            '</select></div>' +
-            '<div style="margin-top:10px"><label style="font-weight:900;font-size:13.5px;color:#0f172a">2) Danh sách Link Web App Apps Script (mỗi dòng 1 link <code>https://script.google.com/.../exec</code>)</label>' +
-            '<textarea id="gas-urls" rows="2" style="' + inp + ';font-family:monospace;font-size:12.5px" placeholder="https://script.google.com/macros/s/.../exec">' + esc(gUrlsTxt) + '</textarea></div>' +
-            '<div style="margin-top:10px"><label style="font-weight:900;font-size:13.5px;color:#0f172a">3) Mã bảo mật SECRET_KEY (tùy chọn — để trống nếu không đặt trong Apps Script)</label>' +
-            '<input id="gas-key" type="text" style="' + inp + ';font-size:13.5px" placeholder="Để trống nếu không dùng khóa" value="' + esc(gKeyVal) + '"></div>' +
-            '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
-            '<button type="button" onclick="CloudSync.saveGasConfig()" style="' + btn('#0284c7') + '">💾 Lưu cấu hình Hướng A</button>' +
-            '<button type="button" onclick="CloudSync.testGasConnection()" style="' + btn('linear-gradient(90deg,#059669,#0d9488)') + '">🔌 Kiểm tra kết nối</button>' +
-            (gCount ? '<button type="button" onclick="CloudSync.pullAllResults()" style="' + btn('#7c3aed') + '">⬇️ Tải &amp; Gộp kết quả từ Sheets</button>' : '') +
-            '</div>' +
-            (gCount ? '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">' +
-                '<button type="button" onclick="CloudSync.syncClassesAndAccountsGas()" style="' + btn('#0f766e') + '">🏫 Đồng bộ Lớp &amp; TK lên Sheets</button>' +
-                '<button type="button" onclick="CloudSync.pullClassesAndAccountsGas()" style="' + btn('#0369a1') + '">⬇️ Tải Lớp &amp; TK từ Sheets</button>' +
-                '<button type="button" onclick="CloudSync.backupBankGas()" style="' + btn('#b45309') + '">💾 Sao lưu Ngân hàng đề</button>' +
-                '<button type="button" onclick="CloudSync.restoreBankGas()" style="' + btn('#4f46e5') + '">📥 Khôi phục Ngân hàng đề</button>' +
-                '<button type="button" onclick="CloudSync.pushLibraryToDriveGas()" style="' + btn('linear-gradient(90deg,#0284c7,#2563eb)') + '">☁️ Đẩy Thư viện &amp; MinMap lên Drive</button>' +
-                '<button type="button" onclick="CloudSync.pullLibraryFromDriveGas()" style="' + btn('linear-gradient(90deg,#059669,#0d9488)') + '">⬇️ Kéo Thư viện &amp; MinMap từ Drive</button>' +
-                '<button type="button" onclick="window.HSAuth && window.HSAuth.openManager && window.HSAuth.openManager()" style="' + btn('linear-gradient(90deg,#7c3aed,#4f46e5)') + '">👥 Quản lý Tài khoản HS</button>' +
-                '</div>' : '') +
-            (gCfg && window.GasBridge && window.GasBridge.getQueueCount() > 0 ? '<div style="margin-top:8px;font-size:12.5px;font-weight:800;color:#b45309">⏳ Đang có ' + window.GasBridge.getQueueCount() + ' bài nộp chờ gửi bù lên Sheets.</div>' : '') +
-            '<div id="gas-test-status" style="margin-top:10px"></div>' +
-            '</div>';
 
-        if (!c) {
-            h += '<div style="margin-top:16px;padding-top:12px;border-top:2px dashed #cbd5e1"><label style="font-weight:900;font-size:14px">Dán <b>Mã kết nối (MQT1...)</b> lấy từ máy tính vào đây:</label><textarea id="cloud-code" rows="2" style="' + inp + ';font-size:13px" placeholder="MQT1...."></textarea><button type="button" onclick="CloudSync.connectCode()" style="' + btn('linear-gradient(90deg,#2563eb,#4f46e5)') + ';margin-top:8px">📥 Nhập mã &amp; đồng bộ</button></div>';
-            h += '<details style="margin-top:12px;background:#eff6ff;border-radius:14px;padding:10px 14px"><summary style="cursor:pointer;font-weight:900;color:#1d4ed8">⚙️ Hoặc thiết lập kho Firebase mới từ đầu</summary>' +
-                '<div style="margin-top:8px;padding:8px 12px;border-radius:10px;background:#fef2f2;color:#b91c1c;font-weight:800;font-size:13px;line-height:1.5">⚠️ CHỈ dùng ở lần đầu tiên, trên MỘT máy duy nhất. Nếu đã có kho ở máy khác thì phải dán <b>Mã MQT1</b> ở trên. Mỗi lần tạo “kho mới” là một nơi lưu dữ liệu RIÊNG nên đề, lớp và học sinh sẽ không thấy nhau.</div>' +
-                '<div style="margin-top:10px"><label style="font-weight:900;font-size:14px">1) Địa chỉ Realtime Database (URL)</label><input id="cloud-url" style="' + inp + '" placeholder="https://ten-du-an-default-rtdb.asia-southeast1.firebasedatabase.app" autocomplete="off" value="' + esc(keep.u || '') + '"></div>' +
-                '<div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"><div style="flex:1;min-width:230px"><label style="font-weight:900;font-size:14px">2) Mã giáo viên (bí mật)</label><input id="cloud-t" style="' + inp + '" value="' + esc(keep.t || S.defT) + '"></div>' +
-                '<div style="flex:1;min-width:200px"><label style="font-weight:900;font-size:14px">3) Mã học sinh</label><input id="cloud-p" style="' + inp + '" value="' + esc(keep.p || S.defP) + '"></div></div>' +
-                '<div style="margin-top:12px"><button type="button" onclick="CloudSync.connect()" style="' + btn('linear-gradient(90deg,#059669,#0d9488)') + '">🔗 Kết nối &amp; đồng bộ</button></div></details>';
-        } else {
-            h += '<div style="margin-top:16px;padding:12px 14px;border-radius:14px;background:#fffbeb;border:2px solid #fcd34d"><div style="font-weight:900;color:#92400e">📱 Mã kết nối dành cho trang GitHub / thiết bị giáo viên khác</div><div style="font-weight:600;font-size:13.5px;color:#78350f;margin:4px 0 8px">Sao chép mã này dán vào mục ĐỒNG BỘ trên trang GitHub (hoặc xuất file index.html mới đẩy lên GitHub):</div>' +
-                '<textarea id="cloud-fullcode" readonly rows="3" style="' + inp + ';font-size:12px">' + esc(fullCode()) + '</textarea>' +
-                '<button type="button" onclick="CloudSync.copyFull()" style="' + btn('#d97706') + ';margin-top:8px">📋 Sao chép Mã kết nối</button></div>';
-        }
         var fbExtra = loadFbPoolRaw();
         var fbAll = getFbPool();
         var keepPoolTxt = ($('fb-pool-codes') || {}).value;
         var fbPoolTxt = (typeof keepPoolTxt === 'string') ? keepPoolTxt : fbExtra.map(function (x) { return x.raw || tokenFor(x); }).join('\n');
-        h += '<div style="margin-top:14px;padding:14px;border-radius:16px;background:#eef2ff;border:2px solid #6366f1">' +
-            '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
-            '<div style="font-size:15.5px;font-weight:900;color:#3730a3">🔥 KHO FIREBASE PHỤ (Multi-Firebase Pool — >100 kết nối Live)</div>' +
-            '<span id="fb-pool-badge" style="font-size:12px;font-weight:800;padding:3px 10px;border-radius:999px;background:#e0e7ff;color:#3730a3">' + fbAll.length + ' kho Live (~' + (fbAll.length * 100) + ' kết nối)</span></div>' +
-            '<div style="margin-top:6px;font-size:13px;font-weight:600;color:#334155">Dán thêm <b>link Database</b> (<code>https://...firebasedatabase.app/</code>) hoặc mã <b>MQT1...</b> tạo từ Gmail của Thầy, mỗi dòng 1 kho. App tự xoay vòng chia phòng &amp; chuyển kho dự phòng khi đông.</div>' +
-            '<textarea id="fb-pool-codes" rows="2" style="' + inp + ';font-family:monospace;font-size:12px;margin-top:8px" placeholder="MQT1.... (mỗi dòng 1 mã kho phụ)">' + esc(fbPoolTxt) + '</textarea>' +
-            '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-            '<button type="button" onclick="CloudSync.saveFbPoolUI()" style="' + btn('#4f46e5') + '">💾 Lưu kho Firebase phụ</button>' +
-            '<button type="button" onclick="CloudSync.testFbPoolUI()" style="' + btn('#059669') + '">🔌 Kiểm tra kho Firebase</button>' +
-            '<span id="fb-pool-status" style="font-size:13px;font-weight:800;color:#3730a3"></span></div><div id="fb-pool-diag" style="margin-top:6px"></div></div>';
-        h += '<details style="margin-top:14px"><summary style="cursor:pointer;font-weight:900;color:#334155">🔐 Rules cần dán trong Firebase (bấm để xem)</summary><textarea id="cloud-rules" readonly rows="9" style="' + inp + ';font-family:monospace;font-size:12.5px">' + esc(RULES) + '</textarea><button type="button" onclick="CloudSync.copyRules()" style="' + btn('#475569') + ';margin-top:6px">📋 Sao chép Rules</button></details>';
+
+        h += '<details style="margin-top:14px;padding:12px 14px;border-radius:16px;background:#f8fafc;border:2px solid #cbd5e1">' +
+            '<summary style="cursor:pointer;font-size:15px;font-weight:900;color:#0f172a">⚙️ Cấu hình kỹ thuật &amp; Máy chủ (Mở khi cần — ' + (gCount ? gCount + ' link GAS' : 'Chưa gắn GAS') + ' • ' + fbAll.length + ' kho Live)</summary>' +
+            '<div style="margin-top:10px"><label style="font-weight:900;font-size:13.5px;color:#0f172a">1) Chế độ vận hành</label>' +
+            '<select id="gas-mode" style="' + inp + ';background:#fff;font-size:14px">' +
+            '<option value="hybrid"' + (gMode === 'hybrid' ? ' selected' : '') + '>Hướng A — Tự động 2 tầng (Khuyên dùng: GAS Drive/Sheets + Firebase Live)</option>' +
+            '<option value="gas"' + (gMode === 'gas' ? ' selected' : '') + '>Chỉ Google Apps Script + Drive (Không dùng Firebase)</option>' +
+            '<option value="firebase"' + (gMode === 'firebase' ? ' selected' : '') + '>Chỉ Firebase (Chế độ cũ)</option>' +
+            '</select></div>' +
+            '<div style="margin-top:10px"><label style="font-weight:900;font-size:13.5px;color:#0f172a">2) Danh sách Link Web App Apps Script (<code>/exec</code>)</label>' +
+            '<textarea id="gas-urls" rows="2" style="' + inp + ';font-family:monospace;font-size:12.5px" placeholder="https://script.google.com/macros/s/.../exec">' + esc(gUrlsTxt) + '</textarea></div>' +
+            '<div style="margin-top:10px"><label style="font-weight:900;font-size:13.5px;color:#0f172a">3) Mã bảo mật SECRET_KEY (tùy chọn)</label>' +
+            '<input id="gas-key" type="text" style="' + inp + ';font-size:13.5px" placeholder="Để trống nếu không dùng khóa" value="' + esc(gKeyVal) + '"></div>' +
+            '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
+            '<button type="button" onclick="CloudSync.saveGasConfig()" style="' + btn('#0284c7') + '">💾 Lưu cấu hình GAS</button>' +
+            (c ? '<button type="button" onclick="CloudSync.disconnect()" style="' + btn('#dc2626') + '">Ngắt kết nối Firebase</button>' : '') +
+            '</div>';
+
+        if (!c) {
+            h += '<div style="margin-top:14px;padding-top:12px;border-top:2px dashed #cbd5e1"><label style="font-weight:900;font-size:13.5px">Dán <b>Mã kết nối Firebase (MQT1...)</b> nếu cần:</label><textarea id="cloud-code" rows="2" style="' + inp + ';font-size:13px" placeholder="MQT1...."></textarea><button type="button" onclick="CloudSync.connectCode()" style="' + btn('linear-gradient(90deg,#2563eb,#4f46e5)') + ';margin-top:8px">📥 Nhập mã &amp; đồng bộ</button></div>';
+        } else {
+            h += '<div style="margin-top:14px;padding:10px 12px;border-radius:12px;background:#fffbeb;border:1.5px solid #fcd34d"><div style="font-weight:900;color:#92400e">📱 Mã kết nối Live (MQT1...)</div>' +
+                '<textarea id="cloud-fullcode" readonly rows="2" style="' + inp + ';font-size:12px">' + esc(fullCode()) + '</textarea>' +
+                '<button type="button" onclick="CloudSync.copyFull()" style="' + btn('#d97706') + ';margin-top:6px">📋 Sao chép Mã</button></div>';
+        }
+
+        h += '<div style="margin-top:12px;padding:12px;border-radius:12px;background:#eef2ff;border:1.5px solid #6366f1">' +
+            '<div style="font-size:14px;font-weight:900;color:#3730a3">🔥 KHO FIREBASE PHỤ (Live >100 kết nối)</div>' +
+            '<textarea id="fb-pool-codes" rows="2" style="' + inp + ';font-family:monospace;font-size:12px;margin-top:6px" placeholder="MQT1.... (mỗi dòng 1 mã kho phụ)">' + esc(fbPoolTxt) + '</textarea>' +
+            '<div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+            '<button type="button" onclick="CloudSync.saveFbPoolUI()" style="' + btn('#4f46e5') + '">💾 Lưu kho Live</button>' +
+            '<button type="button" onclick="CloudSync.testFbPoolUI()" style="' + btn('#059669') + '">🔌 Kiểm tra kho Live</button>' +
+            '<span id="fb-pool-status" style="font-size:12.5px;font-weight:800;color:#3730a3"></span></div><div id="fb-pool-diag" style="margin-top:6px"></div></div>';
+        h += '<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:900;color:#334155">🔐 Rules Firebase (bấm để xem)</summary><textarea id="cloud-rules" readonly rows="6" style="' + inp + ';font-family:monospace;font-size:12px">' + esc(RULES) + '</textarea><button type="button" onclick="CloudSync.copyRules()" style="' + btn('#475569') + ';margin-top:6px">📋 Sao chép Rules</button></details>';
+        h += '</details>';
         body.innerHTML = h;
     }
 
@@ -2870,6 +2859,7 @@
                     ? ('✅ Đã đồng bộ lên Sheets: ' + (cRes.count || 0) + ' lớp học &amp; ' + (aRes.count || 0) + ' tài khoản HS.')
                     : ('⚠️ Đồng bộ chưa đủ: ' + (cRes.error || aRes.error || 'Lỗi kết nối'));
                 if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:' + (ok ? '#ecfdf5;color:#047857' : '#fef2f2;color:#b91c1c') + ';font-weight:800;font-size:13px">' + msg + '</div>';
+                var cmSt = $('cm-gas-status'); if (cmSt) { cmSt.style.color = ok ? '#047857' : '#b91c1c'; cmSt.innerHTML = msg; }
                 return { ok: ok, classes: cRes, accounts: aRes };
             });
         },
@@ -2881,6 +2871,7 @@
                 if (res && res.ok) {
                     try { if (window.ClassNet && ClassNet.onSyncDone) ClassNet.onSyncDone(); } catch (e) { }
                     if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:#ecfdf5;color:#047857;font-weight:800;font-size:13px">✅ Đã tải &amp; gộp từ Sheets: ' + res.classesAdded + ' lớp mới (tổng ' + res.classesTotal + ' lớp), ' + res.accountsAdded + ' tài khoản HS mới.</div>';
+                    var cmSt2 = $('cm-gas-status'); if (cmSt2) { cmSt2.style.color = '#047857'; cmSt2.textContent = '✅ Đã tải ' + res.classesTotal + ' lớp & ' + res.accountsAdded + ' TK mới.'; }
                 } else {
                     if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:#fef2f2;color:#b91c1c;font-weight:800;font-size:13px">❌ ' + esc((res && res.error) || 'Không tải được dữ liệu.') + '</div>';
                 }
@@ -2910,6 +2901,38 @@
                     ? ('✅ Đã khôi phục Ngân hàng đề từ Sheets (' + (res.questionCount || 0) + ' câu hỏi).')
                     : ('❌ ' + esc((res && res.error) || 'Khôi phục thất bại.'));
                 if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:' + (ok ? '#ecfdf5;color:#047857' : '#fef2f2;color:#b91c1c') + ';font-weight:800;font-size:13px">' + msg + '</div>';
+                return res;
+            });
+        },
+        quickPushDriveMain: function () {
+            if (!window.GasBridge || !window.GasBridge.pushLibraryToDrive) return Promise.resolve();
+            var st = $('main-drive-status');
+            if (st) { st.classList.remove('hidden'); st.style.color = '#1d4ed8'; st.textContent = '⏳ Đang đẩy lên Drive...'; }
+            return window.GasBridge.pushLibraryToDrive(function (prog) {
+                if (st && prog) st.textContent = '⏳ Đang đẩy: ' + (prog.done || 0) + '/' + (prog.total || 0) + ' đề...';
+            }).then(function (res) {
+                var ok = !!(res && res.ok);
+                if (st) {
+                    st.style.color = ok ? '#047857' : '#b91c1c';
+                    st.textContent = ok ? ('✅ Đã đẩy ' + (res.topicCount || 0) + ' đề & ' + (res.imageCount || 0) + ' ảnh') : ('❌ ' + ((res && res.error) || 'Lỗi đẩy Drive'));
+                }
+                if (typeof toast === 'function') toast(ok ? '✅ Đã đẩy Thư viện & MinMap lên Drive!' : ('❌ ' + ((res && res.error) || 'Lỗi đẩy Drive')));
+                return res;
+            });
+        },
+        quickPullDriveMain: function () {
+            if (!window.GasBridge || !window.GasBridge.pullLibraryFromDrive) return Promise.resolve();
+            var st = $('main-drive-status');
+            if (st) { st.classList.remove('hidden'); st.style.color = '#1d4ed8'; st.textContent = '⏳ Đang kéo từ Drive...'; }
+            return window.GasBridge.pullLibraryFromDrive(function (prog) {
+                if (st && prog) st.textContent = '⏳ Đang kéo: ' + (prog.done || 0) + '/' + (prog.total || 0) + ' đề...';
+            }).then(function (res) {
+                var ok = !!(res && res.ok);
+                if (st) {
+                    st.style.color = ok ? '#047857' : '#b91c1c';
+                    st.textContent = ok ? ('✅ Đã kéo ' + (res.pulledCount || 0) + ' đề mới/cập nhật') : ('❌ ' + ((res && res.error) || 'Lỗi kéo Drive'));
+                }
+                if (typeof toast === 'function') toast(ok ? '✅ Đã kéo Thư viện & MinMap từ Drive!' : ('❌ ' + ((res && res.error) || 'Lỗi kéo Drive')));
                 return res;
             });
         },
@@ -3923,6 +3946,136 @@
         });
     }
 
+    function savePubIndexToDrive(pubObj) {
+        return postToPrimaryGas({ action: 'savePubIndex', data: pubObj || {} }, 1);
+    }
+
+    function loadPubIndexFromDrive() {
+        return getFromPrimaryGas('getPubIndex');
+    }
+
+    function buildPubIndexPayload(topics, folders) {
+        var pubTopics = (Array.isArray(topics) ? topics : []).filter(function (t) { return t && t.id && t.isPublished; });
+        var byF = {}, needF = {};
+        (Array.isArray(folders) ? folders : []).forEach(function (f) { if (f && f.id) byF[f.id] = f; });
+        pubTopics.forEach(function (t) {
+            var fid = t.folderId, g = 0;
+            while (fid && byF[fid] && !needF[fid] && g++ < 25) {
+                needF[fid] = byF[fid];
+                fid = byF[fid].parentId;
+            }
+        });
+        (Array.isArray(folders) ? folders : []).forEach(function (f) {
+            if (f && f.id && String(f.parentId || '').toLowerCase() === '__subjmeta') needF[f.id] = f;
+        });
+        return {
+            version: 'PUB_INDEX_V1',
+            updatedAt: Date.now(),
+            topics: pubTopics.map(function (t) {
+                return {
+                    id: String(t.id),
+                    title: String(t.title || ''),
+                    subtitle: String(t.subtitle || ''),
+                    subject: String(t.subject || ''),
+                    grade: String(t.grade || ''),
+                    timeLimit: Number(t.timeLimit || 50),
+                    folderId: t.folderId || null,
+                    isPublished: true,
+                    publishScope: t.publishScope || { mode: 'all' },
+                    isMinMapDeck: !!t.isMinMapDeck,
+                    minMapRole: t.minMapRole || '',
+                    hsCount: Array.isArray(t.hsSlideKeys) ? t.hsSlideKeys.length : 0,
+                    hsSlideKeys: (t.isMinMapDeck && t.minMapRole === 'hs') ? [] : undefined,
+                    videoLectures: Array.isArray(t.videoLectures) ? t.videoLectures : [],
+                    updatedAt: Number(t.updatedAt || Date.now()),
+                    order: typeof t.order === 'number' ? t.order : undefined
+                };
+            }),
+            folders: Object.keys(needF).map(function (k) { return needF[k]; })
+        };
+    }
+
+    function publishTopicToDrive(topicObj) {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        var topics = getGlobalVarSafe('savedTopics', []);
+        var folders = getGlobalVarSafe('libraryFolders', []);
+        if ((!folders || !folders.length) && typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.getFolders === 'function') {
+            folders = window.LTDLibBridge.getFolders();
+        }
+        var pubPayload = buildPubIndexPayload(topics, folders);
+        var pTopic = (topicObj && topicObj.id && topicObj.isPublished) ? pushSingleTopicWithImages(topicObj) : Promise.resolve({ ok: true });
+        return pTopic.then(function () {
+            return savePubIndexToDrive(pubPayload);
+        });
+    }
+
+    function pullPublishedForStudent() {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        return loadPubIndexFromDrive().then(function (res) {
+            if (!res || !res.ok || !res.data) return { ok: false, error: (res && res.error) || 'Chưa có danh sách bài xuất bản.' };
+            var data = res.data;
+            var curFolders = getGlobalVarSafe('libraryFolders', null);
+            var folderRemap = {};
+            var normF = function (s) { return String(s || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim(); };
+            if (Array.isArray(data.folders)) {
+                if (Array.isArray(curFolders)) {
+                    data.folders.forEach(function (f) {
+                        if (!f || !f.id) return;
+                        if (curFolders.some(function (x) { return x && x.id === f.id; })) return;
+                        var pid = (f.parentId && folderRemap[f.parentId]) ? folderRemap[f.parentId] : (f.parentId || '');
+                        var dup = curFolders.find(function (x) {
+                            return x && x.id && normF(x.subject || '') === normF(f.subject || '') && String(x.parentId || '') === String(pid) && normF(x.name || '') === normF(f.name || '');
+                        });
+                        if (dup) folderRemap[f.id] = dup.id;
+                        else {
+                            if (f.parentId && folderRemap[f.parentId]) f.parentId = folderRemap[f.parentId];
+                            curFolders.push(f);
+                        }
+                    });
+                    try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(curFolders)); } catch (e) {}
+                } else {
+                    setGlobalVarSafe('libraryFolders', data.folders.slice());
+                }
+            }
+            var remoteTopics = Array.isArray(data.topics) ? data.topics : [];
+            var remoteIds = {};
+            remoteTopics.forEach(function (rt) {
+                if (!rt || !rt.id) return;
+                remoteIds[String(rt.id)] = true;
+                if (rt.folderId && folderRemap[rt.folderId]) rt.folderId = folderRemap[rt.folderId];
+                var curList = getGlobalVarSafe('savedTopics', []);
+                var existing = (Array.isArray(curList) ? curList : []).find(function (x) { return x && String(x.id) === String(rt.id); });
+                if (existing) {
+                    existing.isPublished = true;
+                    existing.publishScope = rt.publishScope || { mode: 'all' };
+                    existing.folderId = rt.folderId;
+                    existing.title = rt.title || existing.title;
+                    existing.subtitle = rt.subtitle || existing.subtitle;
+                    existing.grade = rt.grade || existing.grade;
+                    existing.hsCount = rt.hsCount || existing.hsCount || 0;
+                    upsertLocalTopicSafe(existing);
+                } else {
+                    rt.questions = rt.questions || [];
+                    rt.hsSlideKeys = rt.hsSlideKeys || [];
+                    upsertLocalTopicSafe(rt);
+                }
+            });
+            // Mark topics no longer in PUB_INDEX as unpublished on student side
+            var allLocal = getGlobalVarSafe('savedTopics', []);
+            if (Array.isArray(allLocal)) {
+                allLocal.forEach(function (lt) {
+                    if (lt && lt.id && lt.isPublished && !remoteIds[String(lt.id)]) {
+                        lt.isPublished = false;
+                    }
+                });
+            }
+            try { if (typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.dedupeFolders === 'function') window.LTDLibBridge.dedupeFolders(); } catch (e) {}
+            try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) {}
+            try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) {}
+            return { ok: true, count: remoteTopics.length };
+        });
+    }
+
     function ensureTopicLoadedFromDrive(topicId) {
         if (!topicId) return Promise.resolve({ ok: false, error: 'Thiếu topicId.' });
         var localTopics = getGlobalVarSafe('savedTopics', []);
@@ -3975,6 +4128,10 @@
         flushTopicOutbox: flushTopicOutbox,
         pushLibraryToDrive: pushLibraryToDrive,
         pullLibraryFromDrive: pullLibraryFromDrive,
+        savePubIndexToDrive: savePubIndexToDrive,
+        loadPubIndexFromDrive: loadPubIndexFromDrive,
+        publishTopicToDrive: publishTopicToDrive,
+        pullPublishedForStudent: pullPublishedForStudent,
         ensureTopicLoadedFromDrive: ensureTopicLoadedFromDrive,
         embedSnippet: embedSnippet,
         EXPECTED_SHEETS: EXPECTED_SHEETS
@@ -4045,21 +4202,21 @@
 
     function cloudGet(u) {
         var gasOn = !!(window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled());
-        var p = cloudOn()
+        if (gasOn) {
+            return window.GasBridge.getAccountFromGas(u).then(function (gr) { return gr && gr.ph && !gr.deleted ? gr : null; });
+        }
+        return cloudOn()
             ? api().req('GET', 's', cloudKey(u)).then(function (r) { return r && r.ph && !r.deleted ? r : null; }, function () { return null; })
             : Promise.resolve(null);
-        return p.then(function (r) {
-            if (r) return r;
-            return gasOn ? window.GasBridge.getAccountFromGas(u).then(function (gr) { return gr && gr.ph && !gr.deleted ? gr : null; }) : null;
-        });
     }
     function cloudPut(u, rec) {
         var gasOn = !!(window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled());
-        var pFb = cloudOn()
+        if (gasOn) {
+            return window.GasBridge.saveAccountToGas(u, rec);
+        }
+        return cloudOn()
             ? api().req('PUT', 's', cloudKey(u), rec).then(function () { return true; }, function () { return false; })
             : Promise.resolve(false);
-        var pGas = gasOn ? window.GasBridge.saveAccountToGas(u, rec) : Promise.resolve(false);
-        return Promise.all([pFb, pGas]).then(function (arr) { return !!(arr[0] || arr[1]); });
     }
     function findAccount(u) {
         var local = load().users[u];
