@@ -12701,6 +12701,7 @@ const COLS = 24;
                         <button type="button" onclick="LTDVideoLecture.openTeacherModal('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-black text-pink-700 bg-pink-50 hover:bg-pink-100 border border-pink-300 text-[15px] transition-transform active:scale-95">
                             🎥 Bài giảng${(topic.videoLectures && topic.videoLectures.length) ? ` (${topic.videoLectures.length})` : ''}
                         </button>
+                        ${topic.minMapMarkdown ? `<button type="button" onclick="window.LTDMinMap && window.LTDMinMap.openFromTopic('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-[15px] transition-transform active:scale-95" title="Mở lại sơ đồ tư duy từ Markdown gốc đã lưu">🧠 Mở MinMap</button>` : ''}
                         <button type="button" onclick="editTopicFromLibrary('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-extrabold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-[15px]">
                             Sửa
                         </button>
@@ -12718,6 +12719,7 @@ const COLS = 24;
                         <button type="button" onclick="LTDVideoLecture.openTeacherModal('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-black text-pink-700 bg-pink-50 hover:bg-pink-100 border border-pink-300 text-[15px] transition-transform active:scale-95">
                             🎥 Bài giảng${(topic.videoLectures && topic.videoLectures.length) ? ` (${topic.videoLectures.length})` : ''}
                         </button>
+                        ${topic.minMapMarkdown ? `<button type="button" onclick="window.LTDMinMap && window.LTDMinMap.openFromTopic('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-[15px] transition-transform active:scale-95" title="Mở lại sơ đồ tư duy từ Markdown gốc đã lưu">🧠 Mở MinMap</button>` : ''}
                         <button type="button" onclick="editTopicFromLibrary('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-extrabold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-[15px]">
                             Sửa
                         </button>

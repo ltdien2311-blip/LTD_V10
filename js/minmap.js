@@ -1527,6 +1527,8 @@
                 var deck = getActiveDeck();
                 var sid = (isHs ? 'mmhs_' : 'mmsl_') + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
                 return putSlideDataUrl(sid, dataUrl).then(function () {
+                    var edVal = edEl ? String(edEl.value || '') : '';
+                    if (edVal) deck.minMapMarkdown = edVal;
                     var targetArr = isHs ? deck.hsSlides : deck.slides;
                     targetArr.push({ id: sid, title: title, w: w, h: h, createdAt: Date.now() });
                     _deckState.viewTab = isHs ? 'hs' : 'gv';
@@ -1904,10 +1906,36 @@
             });
             return createdTopics;
         }
+        function openFromTopic(topicId) {
+            var list = getLibTopicsList();
+            var t = list.find(function (x) { return x && String(x.id) === String(topicId); });
+            open();
+            var ed = $('#markdown-editor');
+            if (!t || !t.minMapMarkdown) {
+                showToast('Đề này chưa có mã Markdown gốc để dựng lại!', 'warning');
+                return false;
+            }
+            if (ed) {
+                ed.value = String(t.minMapMarkdown);
+                try { ed.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+            }
+            var d = getActiveDeck();
+            if (d) {
+                d.minMapMarkdown = String(t.minMapMarkdown);
+                if (t.title) d.name = String(t.title).replace(/\s*[—-]\s*(Slide GV|Phiếu học tập)\s*$/i, '').trim() || d.name;
+                saveDecksMeta();
+                renderDeckDrawer();
+            }
+            renderAll();
+            setStatus('✓ Đã nạp lại mã Markdown gốc của "' + (t.title || 'Bài giảng') + '"');
+            showToast('Đã nạp lại mã Markdown gốc từ "' + (t.title || 'Bài giảng') + '"!', 'success');
+            return true;
+        }
         global.LTDMinMapObsStore = {
             getSlideDataUrl: getSlideDataUrl,
             saveCurrentSlideToObsDeck: saveCurrentSlideToObsDeck,
             pushDeckToLibrary: pushDeckToLibrary,
+            openFromTopic: openFromTopic,
             exportHsSlidesToPdf: exportHsSlidesToPdf,
             exportTopicHsPdf: exportTopicHsPdf,
             stripHsSuffix: stripHsSuffix,
@@ -2291,6 +2319,13 @@
 
     global.LTDMinMap = {
         open: open,
+        openFromTopic: function (topicId) {
+            if (global.LTDMinMapObsStore && typeof global.LTDMinMapObsStore.openFromTopic === 'function') {
+                return global.LTDMinMapObsStore.openFromTopic(topicId);
+            }
+            open();
+            return false;
+        },
         close: close,
         renderAll: renderAll,
         switchTab: switchTab,
