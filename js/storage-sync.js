@@ -1788,7 +1788,7 @@
             return Promise.all([p0, p1]).then(function () {
                 var jobs = [];
                 if (S.cfg) {
-                    (isDriveLibManaged() ? ['classes'] : ['topics', 'folders', 'classes']).forEach(function (kind) {
+                    (isDriveLibManaged() ? [] : ['topics', 'folders', 'classes']).forEach(function (kind) {
                         /* [CODE74] Phục hồi khi localStorage bị xóa/không đầy đủ nhưng metadata đồng bộ cũ vẫn còn.
                            Trước đây chỉ nhìn revision Firebase; nếu revision không đổi, máy mới hoặc máy bị mất
                            dữ liệu sẽ bỏ qua GET và tiếp tục hiển thị danh sách rỗng. */
@@ -3013,6 +3013,7 @@
     var LS_GAS_CFG = 'matrix_gas_cfg_v1';
     var LS_GAS_EMB_SIG = 'matrix_gas_emb_sig_v1';
     var lastStuPullStatus = null;
+    var _topicFetchInflight = {};
     var EXPECTED_SHEETS = ['DeThi_CauHinh', 'KetQua_NopBai', 'LopHoc_TaiKhoan', 'PhongThi_Live'];
     var rrIndex = 0;
 
@@ -3241,7 +3242,7 @@
         saveQueue(q);
     }
 
-    function postToGas(payload, retryLeft, seed) {
+    function postToGas(payload, retryLeft, seed, attemptIdx) {
         var cfg = getConfig();
         if (cfg.mode === 'firebase' || !cfg.urls.length) {
             return Promise.resolve({ ok: false, skipped: true });
@@ -3263,10 +3264,13 @@
             });
         }).catch(function (err) {
             if ((retryLeft || 0) > 0) {
+                var att = attemptIdx || 0;
+                var backoffMs = Math.min(12000, 800 * Math.pow(2, att)) + Math.floor(Math.random() * 500);
+                var nextSeed = (typeof seed === 'number' ? seed : 0) + 1;
                 return new Promise(function (resolve) {
                     setTimeout(function () {
-                        resolve(postToGas(payload, retryLeft - 1));
-                    }, 900);
+                        resolve(postToGas(payload, retryLeft - 1, nextSeed, att + 1));
+                    }, backoffMs);
                 });
             }
             throw err;
@@ -3307,9 +3311,9 @@
         }
         var mapped = mapResultToGas(topicId, resultObj, examTitle);
         var payload = { action: 'submitResult', result: mapped };
-        var maxJitter = (typeof opts.maxJitterMs === 'number') ? opts.maxJitterMs : 2000;
+        var maxJitter = (typeof opts.maxJitterMs === 'number') ? opts.maxJitterMs : 3500;
         var delayMs = maxJitter > 0 ? Math.floor(Math.random() * maxJitter) : 0;
-        var retries = (typeof opts.retries === 'number') ? opts.retries : 2; // tổng 3 lần thử (1 lần đầu + 2 lần thử lại)
+        var retries = (typeof opts.retries === 'number') ? opts.retries : 4; // tổng 5 lần thử xoay vòng Pool GAS
 
         return new Promise(function (resolve) {
             setTimeout(function () {
@@ -3419,6 +3423,7 @@
         if (typeof window !== 'undefined' && window.addEventListener) {
             window.addEventListener('online', function () { flushQueue(); });
             setTimeout(function () { flushQueue(); }, 2500);
+            setInterval(function () { if ((typeof navigator === 'undefined' || navigator.onLine !== false) && getQueueCount() > 0) flushQueue(); }, 45000);
         }
     } catch (e) { }
 
@@ -4113,10 +4118,13 @@
                     existing.subtitle = rt.subtitle || existing.subtitle;
                     existing.grade = rt.grade || existing.grade;
                     existing.hsCount = rt.hsCount || existing.hsCount || 0;
+                    existing._remoteUpdatedAt = Number(rt.updatedAt || 0);
                     upsertLocalTopicSafe(existing);
                 } else {
                     rt.questions = rt.questions || [];
                     rt.hsSlideKeys = rt.hsSlideKeys || [];
+                    rt._remoteUpdatedAt = Number(rt.updatedAt || 0);
+                    rt._cachedUpdatedAt = 0;
                     upsertLocalTopicSafe(rt);
                 }
             });
@@ -4145,11 +4153,18 @@
 
     function ensureTopicLoadedFromDrive(topicId) {
         if (!topicId) return Promise.resolve({ ok: false, error: 'Thiếu topicId.' });
+        var key = String(topicId);
         var localTopics = getGlobalVarSafe('savedTopics', []);
-        var existing = (Array.isArray(localTopics) ? localTopics : []).find(function (t) { return t && String(t.id) === String(topicId); });
+        var existing = (Array.isArray(localTopics) ? localTopics : []).find(function (t) { return t && String(t.id) === key; });
         var hasContent = existing && ((Array.isArray(existing.questions) && existing.questions.length > 0) || (Array.isArray(existing.hsSlideKeys) && existing.hsSlideKeys.length > 0));
-        if (hasContent) return Promise.resolve({ ok: true, data: existing, fromCache: true });
-        return loadTopicFromDrive(topicId).then(function (res) {
+        var cachedTs = existing ? Number(existing._cachedUpdatedAt || existing.updatedAt || 0) : 0;
+        var remoteTs = existing ? Number(existing._remoteUpdatedAt || 0) : 0;
+        if (hasContent && cachedTs >= remoteTs) {
+            return Promise.resolve({ ok: true, data: existing, fromCache: true });
+        }
+        if (_topicFetchInflight[key]) return _topicFetchInflight[key];
+        _topicFetchInflight[key] = loadTopicFromDrive(key).then(function (res) {
+            delete _topicFetchInflight[key];
             if (res && res.ok && res.data) {
                 var isStu = (typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.getVar === 'function' && window.LTDLibBridge.getVar('isStudentMode') === true);
                 if (isStu && res.data.isMinMapDeck && res.data.minMapRole === 'both') {
@@ -4158,11 +4173,17 @@
                     delete res.data.minMapMarkdown;
                     delete res.data.minMapSlidesMeta;
                 }
+                res.data._cachedUpdatedAt = Number(res.data.updatedAt || remoteTs || Date.now());
+                res.data._remoteUpdatedAt = Number(remoteTs || res.data.updatedAt || 0);
                 upsertLocalTopicSafe(res.data);
                 return { ok: true, data: res.data, fromCache: false };
             }
             return { ok: false, error: (res && res.error) || 'Không tải được đề từ Drive.' };
+        }, function (err) {
+            delete _topicFetchInflight[key];
+            return { ok: false, error: (err && err.message) || 'Không tải được đề từ Drive.' };
         });
+        return _topicFetchInflight[key];
     }
 
     if (typeof window !== 'undefined' && window.addEventListener) {

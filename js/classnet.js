@@ -72,7 +72,9 @@
             return out;
         }
         /* Đẩy danh sách lớp lên máy chủ (nhánh s/classes mà học sinh đọc được) */
+        function _isGasOn() { try { return !!(window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled()); } catch (e) { return false; } }
         function publishClasses(force) {
+            if (_isGasOn()) return Promise.resolve();
             var a = API();
             if (!a || isStudentMode) return Promise.resolve(false);
             if (!a.teacherReady()) { if (state.pub.st !== 'off') { state.pub = { st: 'off', ts: 0, msg: '', n: 0 }; paintBanner(); } return Promise.resolve(false); }
@@ -153,6 +155,7 @@
             document.body.appendChild(el);
         }
         function pollJoins() {
+            if (_isGasOn()) return Promise.resolve();
             var a = API(); if (!a || !a.teacherReady() || isStudentMode) return Promise.resolve();
             state.lastPoll = Date.now();
             return a.req('GET', 's', 'joins').then(function (j) {
@@ -321,6 +324,7 @@
         }
         function statusOf(cl) { var my = myMap(); return my[cl.id]; }
         function loadClasses(silent) {
+            if (_isGasOn()) return Promise.resolve();
             var a = API();
             if (!a || !a.effStu()) { state.msg = ''; state.noConn = true; state.loading = false; render(); return Promise.resolve(); }
             state.noConn = false; state.lastLoad = Date.now();   /* [CODE79] */
@@ -663,10 +667,24 @@
             score10: o.score10, scorePercent: o.scorePercent, submittedTs: o.submittedTs || o.submittedAt || 0 };
     }
     /* Học sinh: tải kết quả của các bạn trong lớp (chỉ các đề được giao cho lớp mình), lưu nhớ 2 phút, bỏ phần chi tiết bài làm cho nhẹ */
+    function _isGasOn83() { try { return !!(window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled()); } catch (e) { return false; } }
     function fetchCloud(force) {
-        var api = window.CloudSync && CloudSync.api;
-        if (cloud.busy || document.hidden || !api) return;
+        if (cloud.busy || document.hidden) return;
         if (!force && Date.now() - cloud.ts < 120000) return;
+        if (_isGasOn83()) {
+            if (window.GasBridge && typeof window.GasBridge.mergeGasResultsToLocal === 'function') {
+                cloud.busy = true;
+                Promise.resolve(window.GasBridge.mergeGasResultsToLocal()).then(function () {
+                    cloud.ts = Date.now(); cloud.busy = false;
+                    lastSig = ''; schedule();
+                }, function () {
+                    cloud.busy = false; cloud.ts = Date.now() - 90000;
+                });
+            }
+            return;
+        }
+        var api = window.CloudSync && CloudSync.api;
+        if (!api) return;
         var ok = false; try { ok = !!api.effStu(); } catch (e) {}
         if (!ok) return;
         var tids = [];
@@ -748,6 +766,7 @@
         for (var i = 0; i < list.length; i++) list[i].innerHTML = '<img src="' + d + '" alt="" decoding="async">';
     }
     function apull() {
+        if (_isGasOn83()) return;
         var api = window.CloudSync && CloudSync.api;
         while (arun < 3 && aq.length) {
             var k = aq.shift(); arun++;
@@ -1223,7 +1242,7 @@
     }
     /* ---- đồng bộ qua máy chủ: dùng chung kho dữ liệu của app (nhánh avatars/…) ---- */
     function remotePath() { return 'avatars/' + (api() ? api().enc(ukey()) : ukey()); }
-    function connected() { var a = api(); try { return !!(a && a.effStu()); } catch (e) { return false; } }
+    function connected() { try { if (window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled()) return false; } catch (e) {} var a = api(); try { return !!(a && a.effStu()); } catch (e) { return false; } }
     function push() {
         var k = ukey(); if (!k) return Promise.resolve();
         if (!connected()) { setStatus('⚠ Chưa kết nối máy chủ', 'bad'); return Promise.resolve(); }
