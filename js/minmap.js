@@ -852,6 +852,9 @@
             '    <button type="button" class="mm-deck-tab" id="mm-tab-hs">📄 Phiếu HS A4 (<span id="mm-hs-cnt">0</span>)</button>',
             '  </div>',
             '  <div id="mm-deck-slides" class="mm-deck-slides"></div>',
+            '  <div id="mm-gv-export-bar" style="display:flex;gap:6px;">',
+            '    <button type="button" class="vp-btn-png compact" id="mm-export-gv-zip" style="flex:1;justify-content:center;background:#0284c7;border-color:#38bdf8;">📦 Xuất ZIP (.png)</button>',
+            '  </div>',
             '  <div id="mm-hs-export-bar" class="hidden" style="display:flex;gap:6px;">',
             '    <button type="button" class="vp-btn-png compact" id="mm-export-hs-pdf" style="flex:1;justify-content:center;background:#059669;border-color:#34d399;">📥 Xuất PDF (A4)</button>',
             '    <button type="button" class="vp-btn-png compact" id="mm-export-hs-zip" style="flex:1;justify-content:center;background:#0284c7;border-color:#38bdf8;">📦 Xuất ZIP (.png)</button>',
@@ -1474,10 +1477,14 @@
             var hsCntEl = $('#mm-hs-cnt');
             if (hsCntEl) hsCntEl.textContent = String(hsCount);
 
-            var tGv = $('#mm-tab-gv'), tHs = $('#mm-tab-hs'), hsBar = $('#mm-hs-export-bar');
+            var tGv = $('#mm-tab-gv'), tHs = $('#mm-tab-hs'), hsBar = $('#mm-hs-export-bar'), gvBar = $('#mm-gv-export-bar');
             var isHsTab = _deckState.viewTab === 'hs';
             if (tGv && tGv.classList) tGv.classList.toggle('active', !isHsTab);
             if (tHs && tHs.classList) tHs.classList.toggle('active', isHsTab);
+            if (gvBar) {
+                if (gvBar.classList) gvBar.classList.toggle('hidden', isHsTab);
+                gvBar.style.display = !isHsTab ? 'flex' : 'none';
+            }
             if (hsBar) {
                 if (hsBar.classList) hsBar.classList.toggle('hidden', !isHsTab);
                 hsBar.style.display = isHsTab ? 'flex' : 'none';
@@ -1497,7 +1504,7 @@
                 } else {
                     listEl.innerHTML = arr.map(function (sl, i) {
                         var src = _memSlideMap[sl.id] || '';
-                        return '<div class="mm-deck-item" draggable="true" data-sidx="' + i + '">' +
+                        return '<div class="mm-deck-item" draggable="true" data-sidx="' + i + '" title="' + (sl.markdown ? 'Bấm vào trang này để nạp lại Markdown lên Cột 1' : '') + '" style="cursor:pointer">' +
                             '<img class="mm-deck-thumb" data-sid="' + escapeHtml(sl.id) + '" src="' + src + '" alt="slide">' +
                             '<div class="mm-deck-meta"><div class="mm-deck-title">' + escapeHtml(String(i + 1).padStart(2, '0') + '. ' + (sl.title || 'Trang')) + '</div></div>' +
                             '<div class="mm-deck-acts">' +
@@ -1519,40 +1526,58 @@
             populateDestPickers();
         }
         function saveCurrentSlideToObsDeck() {
-            var isHs = state.tab === 'student';
-            var stage = $(isHs ? '#mm-stage-student' : '#mm-stage-teacher');
-            if (!stage) return Promise.resolve(null);
+            var gvStage = $('#mm-stage-teacher');
+            var hsStage = $('#mm-stage-student');
+            if (!gvStage && !hsStage) return Promise.resolve(null);
             var edEl = $('#markdown-editor');
-            var model = parseInput(edEl ? edEl.value : '');
+            var edVal = edEl ? String(edEl.value || '') : '';
+            var model = parseInput(edVal);
             var title = (model.title || 'Sơ đồ MinMap').replace(/==/g, '').trim();
             var fontCSS = buildFontEmbedCSS();
-            var w = isHs ? 794 : 1920;
-            var h = isHs ? Math.max(220, stage.scrollHeight || 480) : 1080;
-            setStatus('Đang lưu ' + (isHs ? 'Phiếu HS A4' : 'Slide GV') + ' vào Bài giảng...');
-            var p;
-            if ((global.modernScreenshot && typeof global.modernScreenshot.domToBlob === 'function') || (mmWin.htmlToImage && typeof mmWin.htmlToImage.toPng === 'function')) {
-                p = renderMinMapPngBlob(stage, isHs ? 'student' : 'teacher', w, h, fontCSS).then(function (res) {
-                    if (res && res.dataUrl) return res.dataUrl;
-                    if (res && res.blob) return blobToDataUrl(res.blob);
-                    return 'data:image/png;base64,';
+            var hasRenderer = (global.modernScreenshot && typeof global.modernScreenshot.domToBlob === 'function') || (mmWin.htmlToImage && typeof mmWin.htmlToImage.toPng === 'function');
+            setStatus('Đang lưu đồng thời Slide GV & Phiếu HS A4 kèm Markdown...');
+
+            function captureStage(stage, kind, w, fixedH) {
+                if (!stage) return Promise.resolve({ dataUrl: 'data:image/png;base64,', w: w, h: fixedH || 480 });
+                var wasHidden = stage.classList && stage.classList.contains('hidden');
+                if (wasHidden) stage.classList.remove('hidden');
+                var h = fixedH || Math.max(220, stage.scrollHeight || 480);
+                var p = hasRenderer
+                    ? renderMinMapPngBlob(stage, kind, w, h, fontCSS).then(function (res) {
+                        if (res && res.dataUrl) return res.dataUrl;
+                        if (res && res.blob) return blobToDataUrl(res.blob);
+                        return 'data:image/png;base64,';
+                    })
+                    : Promise.resolve('data:image/png;base64,');
+                return p.then(function (url) {
+                    if (wasHidden) stage.classList.add('hidden');
+                    return { dataUrl: url, w: w, h: h };
+                }, function (err) {
+                    if (wasHidden) stage.classList.add('hidden');
+                    throw err;
                 });
-            } else {
-                p = Promise.resolve('data:image/png;base64,');
             }
-            return p.then(function (dataUrl) {
-                var deck = getActiveDeck();
-                var sid = (isHs ? 'mmhs_' : 'mmsl_') + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-                return putSlideDataUrl(sid, dataUrl).then(function () {
-                    var edVal = edEl ? String(edEl.value || '') : '';
-                    if (edVal) deck.minMapMarkdown = edVal;
-                    var targetArr = isHs ? deck.hsSlides : deck.slides;
-                    targetArr.push({ id: sid, title: title, w: w, h: h, createdAt: Date.now() });
-                    _deckState.viewTab = isHs ? 'hs' : 'gv';
-                    saveDecksMeta();
-                    renderDeckDrawer();
-                    setStatus('✓ Đã lưu ' + (isHs ? 'Phiếu HS' : 'Slide GV') + ' vào "' + deck.name + '"');
-                    showToast('Đã lưu "' + title + '" (' + (isHs ? 'Phiếu HS' : 'Slide GV') + ')', 'success');
-                    return { deckId: deck.id, slideId: sid, kind: isHs ? 'hs' : 'gv', count: targetArr.length };
+
+            return captureStage(gvStage, 'teacher', 1920, 1080).then(function (gvRes) {
+                return captureStage(hsStage, 'student', 794, 0).then(function (hsRes) {
+                    var deck = getActiveDeck();
+                    var ts = Date.now();
+                    var rnd = Math.random().toString(36).slice(2, 6);
+                    var gvId = 'mmsl_' + ts + '_' + rnd;
+                    var hsId = 'mmhs_' + ts + '_' + rnd;
+                    return Promise.all([
+                        putSlideDataUrl(gvId, gvRes.dataUrl),
+                        putSlideDataUrl(hsId, hsRes.dataUrl)
+                    ]).then(function () {
+                        if (edVal) deck.minMapMarkdown = edVal;
+                        deck.slides.push({ id: gvId, title: title, w: gvRes.w, h: gvRes.h, markdown: edVal, createdAt: ts });
+                        deck.hsSlides.push({ id: hsId, title: title, w: hsRes.w, h: hsRes.h, markdown: edVal, createdAt: ts });
+                        saveDecksMeta();
+                        renderDeckDrawer();
+                        setStatus('✓ Đã lưu cả Slide GV & Phiếu HS A4 vào "' + deck.name + '"');
+                        showToast('Đã lưu "' + title + '" (GV + HS + Markdown)', 'success');
+                        return { deckId: deck.id, gvId: gvId, hsId: hsId, kind: 'both', gvCount: deck.slides.length, hsCount: deck.hsSlides.length };
+                    });
                 });
             }).catch(function (err) {
                 showToast('Lỗi lưu: ' + (err && err.message || ''), 'error');
@@ -1743,6 +1768,36 @@
                 return { fileName: cleanName, pages: jpegPages.length, bytes: pdfBytes.length };
             });
         }
+        function exportGvDeckZip() {
+            var deck = getActiveDeck();
+            if (!deck || !deck.slides.length) {
+                showToast('Chưa có Slide GV nào để xuất ZIP!', 'warning');
+                return Promise.resolve(null);
+            }
+            if (typeof global.JSZip !== 'function') {
+                showToast('Thiếu thư viện JSZip!', 'error');
+                return Promise.resolve(null);
+            }
+            var zip = new global.JSZip();
+            return Promise.all(deck.slides.map(function (sl, i) {
+                return getSlideDataUrl(sl.id).then(function (url) {
+                    var b64 = String(url || '').split(',')[1] || '';
+                    var fn = String(i + 1).padStart(2, '0') + '_GV_' + String(sl.title || 'Slide').replace(/[\\/:*?"<>|]/g, '_') + '.png';
+                    zip.file(fn, b64, { base64: true });
+                });
+            })).then(function () {
+                return zip.generateAsync({ type: 'blob' });
+            }).then(function (blob) {
+                var cleanName = String(deck.name || 'Slide_GV').replace(/[\\/:*?"<>|]/g, '_') + '_GV_1920x1080.zip';
+                var u = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = u; a.download = cleanName;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(function () { try { URL.revokeObjectURL(u); } catch (e) {} }, 3000);
+                showToast('Đã xuất ZIP Slide GV: ' + cleanName, 'success');
+                return cleanName;
+            });
+        }
         function exportHsDeckZip() {
             var deck = getActiveDeck();
             if (!deck || !deck.hsSlides.length) {
@@ -1810,43 +1865,29 @@
             var folderId = ($('#mm-dest-folder') && $('#mm-dest-folder').value) || null;
             var now = Date.now();
             var rawMarkdown = ($('#markdown-editor') && $('#markdown-editor').value) ? String($('#markdown-editor').value) : (deck.minMapMarkdown || '');
-            var createdTopics = [];
-            if (deck.slides && deck.slides.length) {
-                createdTopics.push({
-                    id: 'mm_gv_' + deck.id,
-                    subtitle: '🎬 ' + customName + ' (Slide GV)',
-                    title: customName + ' — Slide GV',
-                    subject: 'Hóa học',
-                    grade: grade,
-                    folderId: folderId || null,
-                    isMinMapDeck: true,
-                    minMapRole: 'gv',
-                    minMapMarkdown: rawMarkdown,
-                    updatedAt: now,
-                    hsSlideKeys: [],
-                    questions: deck.slides.map(function (sl, i) {
-                        return { type: 'mc', obsSlideKey: sl.id, obsSlideData: sl.obsSlideData || '', q: 'Slide ' + (i + 1) + ': ' + (sl.title || ''), opts: [], ans: '' };
-                    })
-                });
-            }
-            if (deck.hsSlides && deck.hsSlides.length) {
-                createdTopics.push({
-                    id: 'mm_hs_' + deck.id,
-                    subtitle: '📄 ' + customName + ' (Phiếu học tập)',
-                    title: customName + ' — Phiếu học tập',
-                    subject: 'Hóa học',
-                    grade: grade,
-                    folderId: folderId || null,
-                    isMinMapDeck: true,
-                    minMapRole: 'hs',
-                    minMapMarkdown: rawMarkdown,
-                    updatedAt: now,
-                    hsSlideKeys: deck.hsSlides.map(function (s) {
-                        return { id: s.id, title: s.title, w: s.w || 794, h: s.h || 500, dataUrl: s.dataUrl || '' };
-                    }),
-                    questions: []
-                });
-            }
+            var unifiedTopic = {
+                id: 'mm_deck_' + deck.id,
+                subtitle: '📘 ' + customName,
+                title: customName,
+                subject: 'Hóa học',
+                grade: grade,
+                folderId: folderId || null,
+                isMinMapDeck: true,
+                minMapRole: 'both',
+                minMapMarkdown: rawMarkdown,
+                minMapSlidesMeta: {
+                    slides: deck.slides.map(function (s) { return { id: s.id, title: s.title, w: s.w || 1920, h: s.h || 1080, markdown: s.markdown || '' }; }),
+                    hsSlides: deck.hsSlides.map(function (s) { return { id: s.id, title: s.title, w: s.w || 794, h: s.h || 500, markdown: s.markdown || '' }; })
+                },
+                updatedAt: now,
+                hsSlideKeys: deck.hsSlides.map(function (s) {
+                    return { id: s.id, title: s.title, w: s.w || 794, h: s.h || 500, dataUrl: s.dataUrl || '', markdown: s.markdown || '' };
+                }),
+                questions: deck.slides.map(function (sl, i) {
+                    return { type: 'mc', obsSlideKey: sl.id, obsSlideData: sl.obsSlideData || '', markdown: sl.markdown || '', q: 'Slide ' + (i + 1) + ': ' + (sl.title || ''), opts: [], ans: '' };
+                })
+            };
+            var createdTopics = [unifiedTopic];
             function compressSlideWebp(dataUrl) {
                 if (!dataUrl || typeof Image === 'undefined' || typeof document === 'undefined') return Promise.resolve(dataUrl || '');
                 if (/^data:image\/webp/i.test(dataUrl)) return Promise.resolve(dataUrl);
@@ -1856,45 +1897,37 @@
                         img.onload = function () {
                             try {
                                 var cv = document.createElement('canvas');
-                                cv.width = img.naturalWidth || img.width || 794;
-                                cv.height = img.naturalHeight || img.height || 500;
+                                cv.width = img.naturalWidth || img.width;
+                                cv.height = img.naturalHeight || img.height;
                                 var ctx = cv.getContext('2d');
-                                ctx.fillStyle = '#ffffff';
-                                ctx.fillRect(0, 0, cv.width, cv.height);
-                                ctx.drawImage(img, 0, 0, cv.width, cv.height);
-                                var out = cv.toDataURL ? cv.toDataURL('image/webp', 0.90) : '';
-                                if (!out || !/^data:image\/webp/i.test(out)) {
-                                    out = cv.toDataURL ? cv.toDataURL('image/jpeg', 0.90) : dataUrl;
-                                }
-                                resolve(out || dataUrl);
-                            } catch (e2) { resolve(dataUrl); }
+                                ctx.drawImage(img, 0, 0);
+                                var wp = cv.toDataURL('image/webp', 0.90);
+                                resolve(wp && wp.indexOf('data:image/webp') === 0 ? wp : dataUrl);
+                            } catch (e) { resolve(dataUrl); }
                         };
                         img.onerror = function () { resolve(dataUrl); };
                         img.src = dataUrl;
                     } catch (e) { resolve(dataUrl); }
                 });
             }
-            setStatus('⏳ Đang đóng gói ảnh WebP 0.90 & lưu vào Thư viện...');
             var packJobs = [];
-            var gvTopicRef = createdTopics.find(function (t) { return t && t.minMapRole === 'gv'; });
-            if (gvTopicRef && gvTopicRef.questions.some(function (q) { return q && q.obsSlideKey && !q.obsSlideData; })) {
-                packJobs.push(Promise.all(gvTopicRef.questions.map(function (q) {
+            if (unifiedTopic.questions.some(function (q) { return !q.obsSlideData; })) {
+                packJobs.push(Promise.all(unifiedTopic.questions.map(function (q) {
                     var p = q.obsSlideData ? Promise.resolve(q.obsSlideData) : getSlideDataUrl(q.obsSlideKey);
                     return p.then(compressSlideWebp);
                 })).then(function (urls) {
                     urls.forEach(function (u, idx) {
-                        if (u && !gvTopicRef.questions[idx].obsSlideData) gvTopicRef.questions[idx].obsSlideData = u;
+                        if (u && !unifiedTopic.questions[idx].obsSlideData) unifiedTopic.questions[idx].obsSlideData = u;
                     });
                 }));
             }
-            var hsTopicRef = createdTopics.find(function (t) { return t && t.minMapRole === 'hs'; });
-            if (hsTopicRef && hsTopicRef.hsSlideKeys.some(function (k) { return !k.dataUrl; })) {
-                packJobs.push(Promise.all(hsTopicRef.hsSlideKeys.map(function (k) {
+            if (unifiedTopic.hsSlideKeys.some(function (k) { return !k.dataUrl; })) {
+                packJobs.push(Promise.all(unifiedTopic.hsSlideKeys.map(function (k) {
                     var p = k.dataUrl ? Promise.resolve(k.dataUrl) : getSlideDataUrl(k.id);
                     return p.then(compressSlideWebp);
                 })).then(function (urls) {
                     urls.forEach(function (u, idx) {
-                        if (u && !hsTopicRef.hsSlideKeys[idx].dataUrl) hsTopicRef.hsSlideKeys[idx].dataUrl = u;
+                        if (u && !unifiedTopic.hsSlideKeys[idx].dataUrl) unifiedTopic.hsSlideKeys[idx].dataUrl = u;
                     });
                 }));
             }
@@ -1917,8 +1950,8 @@
                 }
                 closePushDialog();
                 renderDeckDrawer();
-                showToast('Đã đẩy ' + createdTopics.length + ' bản "' + customName + '" (' + deck.slides.length + ' Slide GV · ' + deck.hsSlides.length + ' Phiếu học tập) vào Thư viện!', 'success');
-                setStatus('✓ Đã đẩy ' + createdTopics.length + ' bản vào Thư viện: Hóa học • ' + grade);
+                showToast('Đã đẩy 1 thẻ Bài giảng "' + customName + '" (' + deck.slides.length + ' Slide GV · ' + deck.hsSlides.length + ' Phiếu học tập) vào Thư viện!', 'success');
+                setStatus('✓ Đã đẩy 1 thẻ Bài giảng vào Thư viện: Hóa học • ' + grade);
             });
             return createdTopics;
         }
@@ -1927,24 +1960,46 @@
             var t = list.find(function (x) { return x && String(x.id) === String(topicId); });
             open();
             var ed = $('#markdown-editor');
-            if (!t || !t.minMapMarkdown) {
+            if (!t || (!t.minMapMarkdown && !(t.minMapSlidesMeta && (t.minMapSlidesMeta.slides || t.minMapSlidesMeta.hsSlides)))) {
                 showToast('Đề này chưa có mã Markdown gốc để dựng lại!', 'warning');
                 return false;
             }
-            if (ed) {
-                ed.value = String(t.minMapMarkdown);
-                try { ed.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
-            }
+            var firstMd = t.minMapMarkdown || '';
             var d = getActiveDeck();
             if (d) {
-                d.minMapMarkdown = String(t.minMapMarkdown);
+                d.minMapMarkdown = String(firstMd);
                 if (t.title) d.name = String(t.title).replace(/\s*[—-]\s*(Slide GV|Phiếu học tập)\s*$/i, '').trim() || d.name;
+                var restoreJobs = [];
+                if (Array.isArray(t.questions) && t.questions.length) {
+                    d.slides = t.questions.map(function (q, idx) {
+                        var meta = (t.minMapSlidesMeta && Array.isArray(t.minMapSlidesMeta.slides) && t.minMapSlidesMeta.slides[idx]) || {};
+                        var sid = q.obsSlideKey || meta.id || ('mmsl_r_' + idx + '_' + Date.now());
+                        if (q.obsSlideData) restoreJobs.push(putSlideDataUrl(sid, q.obsSlideData));
+                        return { id: sid, title: meta.title || String(q.q || '').replace(/^Slide\s+\d+:\s*/i, '') || ('Trang ' + (idx + 1)), w: meta.w || 1920, h: meta.h || 1080, markdown: q.markdown || meta.markdown || firstMd };
+                    });
+                }
+                if (Array.isArray(t.hsSlideKeys) && t.hsSlideKeys.length) {
+                    d.hsSlides = t.hsSlideKeys.map(function (k, idx) {
+                        var meta = (t.minMapSlidesMeta && Array.isArray(t.minMapSlidesMeta.hsSlides) && t.minMapSlidesMeta.hsSlides[idx]) || {};
+                        var hid = k.id || meta.id || ('mmhs_r_' + idx + '_' + Date.now());
+                        if (k.dataUrl) restoreJobs.push(putSlideDataUrl(hid, k.dataUrl));
+                        return { id: hid, title: k.title || meta.title || ('Phiếu ' + (idx + 1)), w: k.w || meta.w || 794, h: k.h || meta.h || 500, markdown: k.markdown || meta.markdown || firstMd };
+                    });
+                }
+                Promise.all(restoreJobs).then(function () {
+                    saveDecksMeta();
+                    renderDeckDrawer();
+                });
                 saveDecksMeta();
                 renderDeckDrawer();
             }
+            if (ed && firstMd) {
+                ed.value = String(firstMd);
+                try { ed.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+            }
             renderAll();
-            setStatus('✓ Đã nạp lại mã Markdown gốc của "' + (t.title || 'Bài giảng') + '"');
-            showToast('Đã nạp lại mã Markdown gốc từ "' + (t.title || 'Bài giảng') + '"!', 'success');
+            setStatus('✓ Đã nạp lại đầy đủ Bài giảng "' + (t.title || 'Bài giảng') + '"');
+            showToast('Đã khôi phục đầy đủ Bài giảng "' + (t.title || 'Bài giảng') + '"!', 'success');
             return true;
         }
         global.LTDMinMapObsStore = {
@@ -1952,6 +2007,7 @@
             saveCurrentSlideToObsDeck: saveCurrentSlideToObsDeck,
             pushDeckToLibrary: pushDeckToLibrary,
             openFromTopic: openFromTopic,
+            exportGvDeckZip: exportGvDeckZip,
             exportHsSlidesToPdf: exportHsSlidesToPdf,
             exportTopicHsPdf: exportTopicHsPdf,
             stripHsSuffix: stripHsSuffix,
@@ -1972,6 +2028,7 @@
         $('#mm-tab-gv').addEventListener('click', function () { _deckState.viewTab = 'gv'; renderDeckDrawer(); });
         $('#mm-tab-hs').addEventListener('click', function () { _deckState.viewTab = 'hs'; renderDeckDrawer(); });
         $('#mm-export-hs-pdf').addEventListener('click', function () { var d = getActiveDeck(); exportHsSlidesToPdf(d.hsSlides, d.name); });
+        $('#mm-export-gv-zip').addEventListener('click', exportGvDeckZip);
         $('#mm-export-hs-zip').addEventListener('click', exportHsDeckZip);
         $('#mm-dest-grade').addEventListener('change', populateDestPickers);
         $('#mm-dest-folder-q').addEventListener('input', populateDestPickers);
@@ -2002,7 +2059,24 @@
         });
         $('#mm-deck-slides').addEventListener('click', function (e) {
             var btn = e.target && e.target.closest ? e.target.closest('button[data-act]') : null;
-            if (!btn) return;
+            if (!btn) {
+                var item = e.target && e.target.closest ? e.target.closest('.mm-deck-item[data-sidx]') : null;
+                if (!item) return;
+                var sIdx = parseInt(item.getAttribute('data-sidx'), 10);
+                var dk = getActiveDeck();
+                var listArr = dk ? (_deckState.viewTab === 'hs' ? dk.hsSlides : dk.slides) : null;
+                var sl = listArr && !isNaN(sIdx) ? listArr[sIdx] : null;
+                if (sl && sl.markdown) {
+                    var ed = $('#markdown-editor');
+                    if (ed) {
+                        ed.value = String(sl.markdown);
+                        try { ed.dispatchEvent(new Event('input', { bubbles: true })); } catch (err) {}
+                    }
+                    renderAll();
+                    showToast('Đã nạp lại Markdown của "' + (sl.title || 'Trang') + '" lên Cột 1', 'info');
+                }
+                return;
+            }
             var act = btn.getAttribute('data-act');
             var idx = parseInt(btn.getAttribute('data-idx'), 10);
             var d = getActiveDeck();

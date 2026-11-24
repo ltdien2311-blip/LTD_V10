@@ -4038,9 +4038,10 @@
                     isPublished: true,
                     publishScope: t.publishScope || { mode: 'all' },
                     isMinMapDeck: !!t.isMinMapDeck,
-                    minMapRole: t.minMapRole || '',
-                    hsCount: Array.isArray(t.hsSlideKeys) ? t.hsSlideKeys.length : 0,
-                    hsSlideKeys: (t.isMinMapDeck && t.minMapRole === 'hs') ? [] : undefined,
+                    minMapRole: (t.isMinMapDeck && t.minMapRole === 'both') ? 'hs' : (t.minMapRole || ''),
+                    hsCount: Array.isArray(t.hsSlideKeys) ? t.hsSlideKeys.length : (t.hsCount || 0),
+                    hsSlideKeys: (t.isMinMapDeck && (t.minMapRole === 'hs' || t.minMapRole === 'both')) ? [] : undefined,
+                    questions: (t.isMinMapDeck && (t.minMapRole === 'hs' || t.minMapRole === 'both')) ? [] : undefined,
                     videoLectures: Array.isArray(t.videoLectures) ? t.videoLectures : [],
                     updatedAt: Number(t.updatedAt || Date.now()),
                     order: typeof t.order === 'number' ? t.order : undefined
@@ -4150,6 +4151,13 @@
         if (hasContent) return Promise.resolve({ ok: true, data: existing, fromCache: true });
         return loadTopicFromDrive(topicId).then(function (res) {
             if (res && res.ok && res.data) {
+                var isStu = (typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.getVar === 'function' && window.LTDLibBridge.getVar('isStudentMode') === true);
+                if (isStu && res.data.isMinMapDeck && res.data.minMapRole === 'both') {
+                    res.data.minMapRole = 'hs';
+                    res.data.questions = [];
+                    delete res.data.minMapMarkdown;
+                    delete res.data.minMapSlidesMeta;
+                }
                 upsertLocalTopicSafe(res.data);
                 return { ok: true, data: res.data, fromCache: false };
             }

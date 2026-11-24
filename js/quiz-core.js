@@ -12207,7 +12207,7 @@ const COLS = 24;
             if (!topic || !m) return;
             _publinkTopicId = topicId;
             _plSet('publink-title', '', '');
-            const isHsSheet = Boolean(topic.isMinMapDeck && topic.minMapRole === 'hs');
+            const isHsSheet = Boolean(topic.isMinMapDeck && (topic.minMapRole === 'hs' || (isStudentMode && topic.minMapRole === 'both')));
             const ti = _plEl('publink-title'); if (ti) { ti.className = 'text-lg font-black uppercase tracking-wide'; ti.textContent = isHsSheet ? (justPublished ? '🚀 Đã xuất bản Phiếu học tập!' : '📄 Link Phiếu học tập cho học sinh') : (justPublished ? '🚀 Đã xuất bản! Link làm bài' : '🔗 Link làm bài cho học sinh'); }
             const tp = _plEl('publink-topic'); if (tp) tp.textContent = isHsSheet ? `${topic.subtitle || ''} (${(topic.hsSlideKeys || []).length} trang phiếu A4 — Học sinh tải PDF trong Thư viện)` : `${topic.subtitle || ''} (${(topic.questions || []).length} câu)`;
             const baseIn = _plEl('publink-base'); if (baseIn) baseIn.value = getEffectiveBaseUrl();
@@ -12854,12 +12854,13 @@ const COLS = 24;
                 const resultCount = Array.isArray(studentResultsByTopic[topic.id]) ? studentResultsByTopic[topic.id].length : 0;
 
                 const isMinMapGv = !isStudentMode && topic.isMinMapDeck && topic.minMapRole === 'gv';
-                const isMinMapHs = !isStudentMode && topic.isMinMapDeck && topic.minMapRole === 'hs';
+                const isMinMapHs = !isStudentMode && topic.isMinMapDeck && (topic.minMapRole === 'hs' || (isStudentMode && topic.minMapRole === 'both'));
+                const isMinMapBoth = !isStudentMode && topic.isMinMapDeck && topic.minMapRole === 'both';
                 const stuVideoBtnHtml = (Array.isArray(topic.videoLectures) && topic.videoLectures.length)
                     ? `<button type="button" onclick="window.LTDVideoLecture && window.LTDVideoLecture.openStudentPlayer('${topic.id}')" class="px-4 py-2.5 rounded-xl font-black text-pink-700 bg-pink-50 hover:bg-pink-100 border-2 border-pink-300 shadow-sm text-[14px] normal-case transition-transform active:scale-95">🎥 Xem bài giảng (${topic.videoLectures.length})</button>`
                     : '';
                 const actionButtonsHtml = isStudentMode
-                    ? (topic.isMinMapDeck && topic.minMapRole === 'hs'
+                    ? (topic.isMinMapDeck && (topic.minMapRole === 'hs' || topic.minMapRole === 'both')
                         ? `
                             ${((Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length) || Number(topic.hsCount || 0) > 0) ? `<button type="button" onclick="loadTopic('${topic.id}')" class="px-4 py-2.5 rounded-xl font-black text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-md text-[14px] normal-case transition-transform active:scale-95" title="Tải Phiếu học tập HS khổ A4 (.pdf)">📄 Tải Phiếu học tập (${(Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length) ? topic.hsSlideKeys.length : topic.hsCount})</button>` : ''}
                             ${stuVideoBtnHtml}
@@ -12891,6 +12892,17 @@ const COLS = 24;
                         <button type="button" onclick="deleteTopic('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-extrabold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 text-[15px]">
                             Xóa
                         </button>
+                    `
+                    : isMinMapBoth
+                    ? `
+                        ${Array.isArray(topic.questions) && topic.questions.length ? `<button type="button" onclick="openObsModal('${topic.id}')" class="px-4 py-2.5 rounded-xl font-black text-white bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 shadow-sm text-[15px] uppercase transition-transform active:scale-95" title="Xuất phôi câu hỏi OBS 1920×1080 nền đen #000">🎬 Xuất OBS (${topic.questions.length})</button>` : ''}
+                        ${Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length ? `<button type="button" onclick="window.LTDMinMapObsStore && window.LTDMinMapObsStore.exportTopicHsPdf('${topic.id}')" class="px-4 py-2.5 rounded-xl font-black text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-sm text-[15px] uppercase transition-transform active:scale-95" title="Tải Phiếu học tập HS khổ A4 tiết kiệm giấy (.pdf)">📄 Phiếu học tập (${topic.hsSlideKeys.length})</button>` : ''}
+                        ${publishBtnHtml}
+                        <button type="button" onclick="openMoveTopic('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-black text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-300 text-[15px] transition-transform active:scale-95">📁 Chuyển</button>
+                        <button type="button" onclick="LTDVideoLecture.openTeacherModal('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-black text-pink-700 bg-pink-50 hover:bg-pink-100 border border-pink-300 text-[15px] transition-transform active:scale-95">🎥 Bài giảng${(topic.videoLectures && topic.videoLectures.length) ? ` (${topic.videoLectures.length})` : ''}</button>
+                        ${(topic.minMapMarkdown || topic.minMapSlidesMeta) ? `<button type="button" onclick="window.LTDMinMap && window.LTDMinMap.openFromTopic('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-[15px] transition-transform active:scale-95" title="Mở lại đầy đủ Bài giảng trong MinMap Studio">🧠 Mở MinMap</button>` : ''}
+                        <button type="button" onclick="editTopicFromLibrary('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-extrabold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-[15px]">Sửa</button>
+                        <button type="button" onclick="deleteTopic('${topic.id}')" class="px-3.5 py-2.5 rounded-xl font-extrabold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 text-[15px]">Xóa</button>
                     `
                     : isMinMapHs
                     ? `
@@ -13154,14 +13166,14 @@ const COLS = 24;
         function loadTopic(id) {
             const topic = savedTopics.find(t => t.id === id);
             if (!topic) return;
-            const needsLazy = (topic.isMinMapDeck && topic.minMapRole === 'hs')
+            const needsLazy = (topic.isMinMapDeck && (topic.minMapRole === 'hs' || (isStudentMode && topic.minMapRole === 'both')))
                 ? !(Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length && topic.hsSlideKeys[0] && topic.hsSlideKeys[0].dataUrl)
                 : !(Array.isArray(topic.questions) && topic.questions.length);
             if (needsLazy && window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled() && typeof window.GasBridge.ensureTopicLoadedFromDrive === 'function') {
                 window.GasBridge.ensureTopicLoadedFromDrive(id).then(res => {
                     const loaded = (res && res.ok && res.data) ? res.data : savedTopics.find(t => t.id === id);
                     if (!loaded) return;
-                    if (loaded.isMinMapDeck && loaded.minMapRole === 'hs' && Array.isArray(loaded.hsSlideKeys) && loaded.hsSlideKeys.length) {
+                    if (loaded.isMinMapDeck && (loaded.minMapRole === 'hs' || (isStudentMode && loaded.minMapRole === 'both')) && Array.isArray(loaded.hsSlideKeys) && loaded.hsSlideKeys.length) {
                         if (window.LTDMinMapObsStore && typeof window.LTDMinMapObsStore.exportTopicHsPdf === 'function') {
                             window.LTDMinMapObsStore.exportTopicHsPdf(loaded.id);
                         }
@@ -13172,7 +13184,7 @@ const COLS = 24;
                 });
                 return;
             }
-            if (topic.isMinMapDeck && topic.minMapRole === 'hs' && Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length) {
+            if (topic.isMinMapDeck && (topic.minMapRole === 'hs' || (isStudentMode && topic.minMapRole === 'both')) && Array.isArray(topic.hsSlideKeys) && topic.hsSlideKeys.length) {
                 if (window.LTDMinMapObsStore && typeof window.LTDMinMapObsStore.exportTopicHsPdf === 'function') {
                     window.LTDMinMapObsStore.exportTopicHsPdf(topic.id);
                 }
