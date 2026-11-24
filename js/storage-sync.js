@@ -4047,6 +4047,9 @@
                     hsCount: Array.isArray(t.hsSlideKeys) ? t.hsSlideKeys.length : (t.hsCount || 0),
                     hsSlideKeys: (t.isMinMapDeck && (t.minMapRole === 'hs' || t.minMapRole === 'both')) ? [] : undefined,
                     questions: (t.isMinMapDeck && (t.minMapRole === 'hs' || t.minMapRole === 'both')) ? [] : undefined,
+                    allowStudentPdf: !!t.allowStudentPdf,
+                    studentPdfKey: t.studentPdfKey ? String(t.studentPdfKey) : '',
+                    studentPdfName: t.studentPdfName ? String(t.studentPdfName) : '',
                     videoLectures: Array.isArray(t.videoLectures) ? t.videoLectures : [],
                     updatedAt: Number(t.updatedAt || Date.now()),
                     order: typeof t.order === 'number' ? t.order : undefined
@@ -4118,6 +4121,9 @@
                     existing.subtitle = rt.subtitle || existing.subtitle;
                     existing.grade = rt.grade || existing.grade;
                     existing.hsCount = rt.hsCount || existing.hsCount || 0;
+                    existing.allowStudentPdf = !!rt.allowStudentPdf;
+                    existing.studentPdfKey = rt.studentPdfKey || '';
+                    existing.studentPdfName = rt.studentPdfName || '';
                     existing._remoteUpdatedAt = Number(rt.updatedAt || 0);
                     upsertLocalTopicSafe(existing);
                 } else {
@@ -4229,6 +4235,8 @@
         loadTopicFromDrive: loadTopicFromDrive,
         saveImageToDrive: saveImageToDrive,
         loadImageFromDrive: loadImageFromDrive,
+        saveFileToDrive: saveImageToDrive,
+        loadFileFromDrive: loadImageFromDrive,
         enqueueTopicSync: enqueueTopicSync,
         getTopicOutboxCount: getTopicOutboxCount,
         flushTopicOutbox: flushTopicOutbox,

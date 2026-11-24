@@ -12023,11 +12023,18 @@ const COLS = 24;
             return '🌐 Tất cả';
         }
 
-        function commitPublishTopic(id, newStatus, scopeObj) {
+        function commitPublishTopic(id, newStatus, scopeObj, pdfMeta) {
             const idx = savedTopics.findIndex(t => t.id === id);
             if (idx === -1) return;
             savedTopics[idx].isPublished = newStatus;
             if (scopeObj) savedTopics[idx].publishScope = scopeObj;
+            if (pdfMeta && typeof pdfMeta === 'object') {
+                savedTopics[idx].allowStudentPdf = !!pdfMeta.allowStudentPdf;
+                savedTopics[idx].studentPdfKey = pdfMeta.studentPdfKey || '';
+                savedTopics[idx].studentPdfName = pdfMeta.studentPdfName || '';
+                savedTopics[idx].teacherDocxKey = pdfMeta.teacherDocxKey || '';
+                savedTopics[idx].teacherDocxName = pdfMeta.teacherDocxName || '';
+            }
             savedTopics[idx].updatedAt = Date.now();
             if (Array.isArray(window.__PRELOADED_LIBRARY__)) {
                 const pIdx = window.__PRELOADED_LIBRARY__.findIndex(t => t.id === id);
@@ -12075,6 +12082,25 @@ const COLS = 24;
             showModal('Đã hủy xuất bản', `Chủ đề "${savedTopics[idx].subtitle}" đã được ẩn khỏi mục Thư viện của Học sinh.`, 'info');
         }
 
+        function classifyPublishFiles(fileList) {
+            const res = { pdf: null, docx: null, rejected: [] };
+            const arr = Array.from(fileList || []);
+            arr.forEach(f => {
+                if (!f || !f.name) return;
+                const nm = String(f.name);
+                const lower = nm.toLowerCase();
+                if (typeof f.size === 'number' && f.size > 12 * 1024 * 1024) {
+                    res.rejected.push(nm + ' (>12MB)');
+                    return;
+                }
+                if (lower.endsWith('.pdf')) res.pdf = f;
+                else if (lower.endsWith('.docx')) res.docx = f;
+                else res.rejected.push(nm + ' (chỉ nhận .pdf/.docx)');
+            });
+            return res;
+        }
+        window._ltdClassifyPubFiles = classifyPublishFiles;
+
         function openPublishScopeModal(topicId) {
             const topic = savedTopics.find(t => t.id === topicId);
             if (!topic) return;
@@ -12082,6 +12108,14 @@ const COLS = 24;
             if (old) old.remove();
             const curSc = topic.publishScope || { mode: 'all', grades: [topic.grade || 'Lớp 12'], classIds: [], classNames: [] };
             const clsList = Array.isArray(classesData) ? classesData : [];
+            const pdfState = {
+                allowStudentPdf: Boolean(topic.allowStudentPdf),
+                studentPdfKey: topic.studentPdfKey || '',
+                studentPdfName: topic.studentPdfName || '',
+                teacherDocxKey: topic.teacherDocxKey || '',
+                teacherDocxName: topic.teacherDocxName || '',
+                uploading: false
+            };
             const ov = document.createElement('div');
             ov.id = 'pub-scope-modal';
             ov.style.cssText = 'position:fixed;inset:0;z-index:100010;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:12px;font-family:"Segoe UI",system-ui,sans-serif';
@@ -12092,9 +12126,9 @@ const COLS = 24;
                 }).join('')
                 : '<span style="color:#64748b;font-size:13px">Chưa có lớp nào trong Quản lí lớp học.</span>';
             ov.innerHTML =
-                `<div style="background:#fff;border-radius:18px;width:100%;max-width:520px;box-shadow:0 24px 60px rgba(0,0,0,.3);overflow:hidden">` +
+                `<div style="background:#fff;border-radius:18px;width:100%;max-width:560px;max-height:92vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.3)">` +
                 `  <div style="padding:14px 18px;background:linear-gradient(90deg,#ea580c,#d97706);color:#fff;display:flex;justify-content:space-between;align-items:center">` +
-                `    <div style="font-size:16px;font-weight:900">🚀 CHỌN PHẠM VI XUẤT BẢN</div>` +
+                `    <div style="font-size:16px;font-weight:900">🚀 CHỌN PHẠM VI XUẤT BẢN &amp; ĐÍNH KÈM ĐỀ</div>` +
                 `    <button type="button" id="ps-close" style="background:rgba(255,255,255,.2);color:#fff;border:none;border-radius:8px;padding:4px 10px;font-weight:900;cursor:pointer">✕</button>` +
                 `  </div>` +
                 `  <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">` +
@@ -12110,6 +12144,17 @@ const COLS = 24;
                 `      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:800"><input type="radio" name="ps-mode" value="classes" ${curSc.mode === 'classes' ? 'checked' : ''}> 🏫 Theo từng Lớp (HS phải đăng nhập đúng Lớp)</label>` +
                 `      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding-left:22px">${clsChecks}</div>` +
                 `    </div>` +
+                `    <div style="padding:12px;border:1.5px solid #93c5fd;background:#eff6ff;border-radius:12px;display:flex;flex-direction:column;gap:8px">` +
+                `      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:900;color:#1e3a8a">` +
+                `        <input type="checkbox" id="ps-allow-pdf" ${pdfState.allowStudentPdf ? 'checked' : ''}> 📄 Cho phép Học sinh tải đề PDF trong Thư viện` +
+                `      </label>` +
+                `      <div id="ps-dropzone" style="border:2px dashed #60a5fa;border-radius:10px;padding:12px;text-align:center;background:#fff;cursor:pointer;font-size:13px;font-weight:700;color:#1d4ed8">` +
+                `        📥 Kéo thả hoặc bấm để chọn 1–2 file (<b>.pdf</b> cho HS &amp; <b>.docx</b> gốc cho GV — tự động tách)` +
+                `        <input type="file" id="ps-file-input" multiple accept=".pdf,.docx" style="display:none">` +
+                `      </div>` +
+                `      <div id="ps-file-status" style="font-size:12.5px;font-weight:800;color:#0369a1"></div>` +
+                `      <div id="ps-file-pills" style="display:flex;flex-direction:column;gap:6px"></div>` +
+                `    </div>` +
                 `    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px">` +
                 `      <button type="button" id="ps-cancel" style="padding:9px 14px;border-radius:10px;border:none;background:#e2e8f0;color:#334155;font-weight:800;cursor:pointer">Hủy</button>` +
                 `      <button type="button" id="ps-confirm" style="padding:9px 16px;border-radius:10px;border:none;background:linear-gradient(90deg,#ea580c,#d97706);color:#fff;font-weight:900;cursor:pointer">🚀 Xác nhận Xuất bản</button>` +
@@ -12117,9 +12162,101 @@ const COLS = 24;
                 `  </div>` +
                 `</div>`;
             document.body.appendChild(ov);
+
+            const statusEl = ov.querySelector('#ps-file-status');
+            const pillsEl = ov.querySelector('#ps-file-pills');
+            const renderPills = () => {
+                let html = '';
+                if (pdfState.studentPdfKey) {
+                    html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-radius:8px;background:#ecfdf5;border:1px solid #6ee7b7;font-size:12.5px;font-weight:800;color:#065f46">` +
+                        `<span>📄 PDF cho HS: ${_escHtml(pdfState.studentPdfName || 'De_thi.pdf')}</span>` +
+                        `<button type="button" id="ps-del-pdf" style="border:none;background:#fee2e2;color:#dc2626;border-radius:6px;padding:2px 8px;font-weight:800;cursor:pointer">Xóa</button></div>`;
+                }
+                if (pdfState.teacherDocxKey) {
+                    html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-radius:8px;background:#eef2ff;border:1px solid #a5b4fc;font-size:12.5px;font-weight:800;color:#3730a3">` +
+                        `<span>📝 DOCX gốc (chỉ GV): ${_escHtml(pdfState.teacherDocxName || 'De_goc.docx')}</span>` +
+                        `<span style="display:flex;gap:6px">` +
+                        `  <button type="button" id="ps-dl-docx" style="border:none;background:#e0e7ff;color:#3730a3;border-radius:6px;padding:2px 8px;font-weight:800;cursor:pointer">Tải về</button>` +
+                        `  <button type="button" id="ps-del-docx" style="border:none;background:#fee2e2;color:#dc2626;border-radius:6px;padding:2px 8px;font-weight:800;cursor:pointer">Xóa</button>` +
+                        `</span></div>`;
+                }
+                pillsEl.innerHTML = html;
+                const dPdf = pillsEl.querySelector('#ps-del-pdf');
+                if (dPdf) dPdf.onclick = () => { pdfState.studentPdfKey = ''; pdfState.studentPdfName = ''; renderPills(); };
+                const dDocx = pillsEl.querySelector('#ps-del-docx');
+                if (dDocx) dDocx.onclick = () => { pdfState.teacherDocxKey = ''; pdfState.teacherDocxName = ''; renderPills(); };
+                const dlDocx = pillsEl.querySelector('#ps-dl-docx');
+                if (dlDocx) dlDocx.onclick = async () => {
+                    if (!window.GasBridge || typeof window.GasBridge.loadFileFromDrive !== 'function') return;
+                    statusEl.textContent = '⏳ Đang tải file DOCX từ Drive...';
+                    const r = await window.GasBridge.loadFileFromDrive(pdfState.teacherDocxKey);
+                    if (r && r.ok && r.dataUrl) {
+                        const a = document.createElement('a'); a.href = r.dataUrl; a.download = pdfState.teacherDocxName || 'De_goc.docx';
+                        document.body.appendChild(a); a.click(); a.remove();
+                        statusEl.textContent = '✅ Đã tải DOCX gốc.';
+                    } else {
+                        statusEl.textContent = '⚠️ Không tải được DOCX: ' + ((r && r.error) || 'Lỗi mạng');
+                    }
+                };
+            };
+            renderPills();
+
+            const readAsDataUrl = f => new Promise((resolve, reject) => {
+                const fr = new FileReader();
+                fr.onload = () => resolve(String(fr.result || ''));
+                fr.onerror = () => reject(new Error('Không đọc được file ' + f.name));
+                fr.readAsDataURL(f);
+            });
+            const handlePickedFiles = async files => {
+                const cls = classifyPublishFiles(files);
+                if (cls.rejected.length) statusEl.textContent = '⚠️ Bỏ qua: ' + cls.rejected.join(', ');
+                if (!cls.pdf && !cls.docx) return;
+                if (!window.GasBridge || !window.GasBridge.isGasEnabled || !window.GasBridge.isGasEnabled() || typeof window.GasBridge.saveFileToDrive !== 'function') {
+                    statusEl.textContent = '⚠️ Cần kết nối GAS #1 để lưu file lên Google Drive.';
+                    return;
+                }
+                pdfState.uploading = true;
+                statusEl.textContent = '⏳ Đang đẩy file lên Google Drive...';
+                try {
+                    if (cls.pdf) {
+                        const url = await readAsDataUrl(cls.pdf);
+                        const k = 'pdf_stu_' + topic.id;
+                        const r = await window.GasBridge.saveFileToDrive(k, url);
+                        if (!r || !r.ok) throw new Error((r && r.error) || 'Lỗi lưu PDF');
+                        pdfState.studentPdfKey = k;
+                        pdfState.studentPdfName = cls.pdf.name;
+                        const chk = ov.querySelector('#ps-allow-pdf');
+                        if (chk) chk.checked = true;
+                    }
+                    if (cls.docx) {
+                        const url = await readAsDataUrl(cls.docx);
+                        const k = 'docx_gv_' + topic.id;
+                        const r = await window.GasBridge.saveFileToDrive(k, url);
+                        if (!r || !r.ok) throw new Error((r && r.error) || 'Lỗi lưu DOCX');
+                        pdfState.teacherDocxKey = k;
+                        pdfState.teacherDocxName = cls.docx.name;
+                    }
+                    statusEl.textContent = '✅ Đã tách & lưu file lên Google Drive thành công!';
+                    renderPills();
+                } catch (err) {
+                    statusEl.textContent = '⚠️ Lỗi tải lên Drive: ' + (err && err.message ? err.message : String(err));
+                } finally {
+                    pdfState.uploading = false;
+                }
+            };
+
+            const dz = ov.querySelector('#ps-dropzone');
+            const fin = ov.querySelector('#ps-file-input');
+            dz.onclick = () => fin.click();
+            fin.onchange = () => { if (fin.files && fin.files.length) handlePickedFiles(fin.files); fin.value = ''; };
+            dz.ondragover = e => { e.preventDefault(); dz.style.background = '#dbeafe'; };
+            dz.ondragleave = () => { dz.style.background = '#fff'; };
+            dz.ondrop = e => { e.preventDefault(); dz.style.background = '#fff'; if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) handlePickedFiles(e.dataTransfer.files); };
+
             ov.querySelector('#ps-close').onclick = () => ov.remove();
             ov.querySelector('#ps-cancel').onclick = () => ov.remove();
             ov.querySelector('#ps-confirm').onclick = () => {
+                if (pdfState.uploading) { alert('Đang tải file lên Drive, vui lòng đợi vài giây...'); return; }
                 const mode = (ov.querySelector('input[name="ps-mode"]:checked') || {}).value || 'all';
                 const grades = Array.from(ov.querySelectorAll('.ps-grd-chk:checked')).map(el => el.value);
                 const clsEls = Array.from(ov.querySelectorAll('.ps-cls-chk:checked'));
@@ -12127,24 +12264,17 @@ const COLS = 24;
                 const classNames = clsEls.map(el => el.getAttribute('data-name') || '');
                 if (mode === 'grades' && !grades.length) { alert('Hãy chọn ít nhất 1 Khối!'); return; }
                 if (mode === 'classes' && !classIds.length) { alert('Hãy chọn ít nhất 1 Lớp!'); return; }
+                const allowPdf = Boolean((ov.querySelector('#ps-allow-pdf') || {}).checked);
                 ov.remove();
-                commitPublishTopic(topicId, true, { mode, grades, classIds, classNames });
+                commitPublishTopic(topicId, true, { mode, grades, classIds, classNames }, {
+                    allowStudentPdf: allowPdf,
+                    studentPdfKey: pdfState.studentPdfKey,
+                    studentPdfName: pdfState.studentPdfName,
+                    teacherDocxKey: pdfState.teacherDocxKey,
+                    teacherDocxName: pdfState.teacherDocxName
+                });
             };
         }
-
-        function togglePublishTopic(id) {
-            if (isStudentMode) return;
-            const idx = savedTopics.findIndex(t => t.id === id);
-            if (idx === -1) return;
-            const newStatus = !Boolean(savedTopics[idx].isPublished);
-            if (newStatus) {
-                openPublishScopeModal(id);
-                return;
-            }
-            commitPublishTopic(id, false, null);
-        }
-
-        // ===================== [CODE78] LINK LÀM BÀI SAU KHI XUẤT BẢN =====================
         let _publinkTopicId = null, _publinkUrl = '', _publinkTimer = null;
         function _plEl(id) { return document.getElementById(id); }
         function _plSet(id, msg, cls) {
@@ -12869,6 +12999,7 @@ const COLS = 24;
                             <button type="button" onclick="loadTopic('${topic.id}')" class="px-4 py-2.5 rounded-xl font-black text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 shadow-md text-[14px] normal-case transition-transform active:scale-95">
                                 ▶ Chọn làm bài này
                             </button>
+                            ${topic.allowStudentPdf ? `<button type="button" onclick="downloadStudentTopicPdf('${topic.id}')" class="px-4 py-2.5 rounded-xl font-black text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 shadow-md text-[14px] normal-case transition-transform active:scale-95" title="Tải đề thi PDF khổ A4 về máy">📄 Tải đề PDF</button>` : ''}
                             <button type="button" onclick="openMyResults('${topic.id}')" class="px-4 py-2.5 rounded-xl font-black text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border-2 border-indigo-300 shadow-sm text-[14px] normal-case transition-transform active:scale-95 ${(hasAttemptFor(topic.id) || myAttemptResults(topic.id).length) ? '' : 'opacity-70'}">
                                 📋 Xem lại kết quả
                             </button>
@@ -13193,6 +13324,105 @@ const COLS = 24;
             applyTopic(topic);
             closeLibrary();
         }
+
+        function buildStudentTopicPrintHtml(topic) {
+            const qs = Array.isArray(topic && topic.questions) ? topic.questions : [];
+            const title = _escHtml((topic && (topic.subtitle || topic.title)) || 'Đề thi');
+            const meta = `${_escHtml((topic && topic.subject) || 'Hóa học')} • ${_escHtml((topic && topic.grade) || 'Lớp 12')} • Thời gian: ${(topic && topic.timeLimit) || 50} phút`;
+            const body = qs.map((q, idx) => {
+                const qText = String(q && q.q ? q.q : '').replace(/\n/g, '<br>');
+                let extra = '';
+                if (q && q.img) extra += `<div style="margin:6px 0"><img src="${q.img}" style="max-width:100%;max-height:260px"></div>`;
+                const tp = (q && q.type) || 'mc';
+                if (tp === 'mc' && Array.isArray(q.opts)) {
+                    const labels = ['A', 'B', 'C', 'D'];
+                    extra += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;margin-top:6px">' +
+                        q.opts.map((op, oi) => `<div><b>${labels[oi] || (oi + 1)}.</b> ${String(op || '')}</div>`).join('') + '</div>';
+                } else if (tp === 'tf' && Array.isArray(q.opts)) {
+                    const labels = ['a', 'b', 'c', 'd'];
+                    extra += '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">' +
+                        q.opts.map((op, oi) => `<div><b>${labels[oi] || (oi + 1)})</b> ${String(op || '')}</div>`).join('') + '</div>';
+                } else if (tp === 'sa') {
+                    extra += '<div style="margin-top:6px;color:#475569">Trả lời: ......................................................</div>';
+                }
+                return `<div style="margin-bottom:12px;page-break-inside:avoid"><div><b>Câu ${idx + 1}:</b> ${qText}</div>${extra}</div>`;
+            }).join('');
+            return `<div style="text-align:center;border-bottom:2px solid #0f172a;padding-bottom:8px;margin-bottom:14px">` +
+                `<div style="font-size:18px;font-weight:900;text-transform:uppercase">${title}</div>` +
+                `<div style="font-size:13px;font-weight:700;color:#334155;margin-top:3px">${meta}</div>` +
+                `</div>${body}`;
+        }
+
+        async function downloadStudentTopicPdf(topicId) {
+            let topic = savedTopics.find(t => t && t.id === topicId);
+            if (!topic) return null;
+            const safeFn = String(topic.studentPdfName || ((topic.subtitle || topic.title || 'De_thi').replace(/[\\/:*?"<>|]/g, '_') + '.pdf'));
+            // Priority 1: Attached teacher PDF on Drive
+            if (topic.studentPdfKey && window.GasBridge && typeof window.GasBridge.loadFileFromDrive === 'function') {
+                try {
+                    const r = await window.GasBridge.loadFileFromDrive(topic.studentPdfKey);
+                    if (r && r.ok && r.dataUrl) {
+                        const a = document.createElement('a');
+                        a.href = r.dataUrl;
+                        a.download = safeFn;
+                        document.body.appendChild(a); a.click(); a.remove();
+                        return { ok: true, source: 'attached', filename: safeFn };
+                    }
+                } catch (e) {}
+            }
+            // Fallback 2: Auto-build A4 PDF from questions (answers & explanations hidden)
+            if ((!Array.isArray(topic.questions) || !topic.questions.length) && window.GasBridge && typeof window.GasBridge.ensureTopicLoadedFromDrive === 'function') {
+                const res = await window.GasBridge.ensureTopicLoadedFromDrive(topicId);
+                if (res && res.ok && res.data) topic = res.data;
+            }
+            if (!Array.isArray(topic.questions) || !topic.questions.length) {
+                showModal('Chưa có dữ liệu đề', 'Đề thi này chưa có câu hỏi hoặc tệp PDF đính kèm.', 'warning');
+                return { ok: false, error: 'empty' };
+            }
+            if (!window.modernScreenshot || typeof window.modernScreenshot.domToCanvas !== 'function' || !window.LTDMinMapObsStore || typeof window.LTDMinMapObsStore.buildA4PdfBytesFromJpegs !== 'function') {
+                showModal('Chưa sẵn sàng', 'Trình tạo PDF A4 chưa nạp xong, hãy thử tải lại trang.', 'warning');
+                return { ok: false, error: 'renderer_missing' };
+            }
+            const host = document.createElement('div');
+            host.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;color:#111;padding:34px 40px;font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.45';
+            host.innerHTML = buildStudentTopicPrintHtml(topic);
+            document.body.appendChild(host);
+            try {
+                if (typeof window.renderMathInElement === 'function') {
+                    window.renderMathInElement(host, { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }], throwOnError: false });
+                }
+                const fullCanvas = await window.modernScreenshot.domToCanvas(host, { scale: 2, backgroundColor: '#ffffff' });
+                const pageW = 1654, pageH = 2339;
+                const scaleX = pageW / fullCanvas.width;
+                const srcSliceH = Math.floor(pageH / scaleX);
+                const jpegPages = [];
+                for (let sy = 0; sy < fullCanvas.height; sy += srcSliceH) {
+                    const sh = Math.min(srcSliceH, fullCanvas.height - sy);
+                    const pCv = document.createElement('canvas');
+                    pCv.width = pageW; pCv.height = pageH;
+                    const pCtx = pCv.getContext('2d');
+                    pCtx.fillStyle = '#ffffff';
+                    pCtx.fillRect(0, 0, pageW, pageH);
+                    pCtx.drawImage(fullCanvas, 0, sy, fullCanvas.width, sh, 0, 0, pageW, Math.round(sh * scaleX));
+                    const b64 = pCv.toDataURL('image/jpeg', 0.88).split(',')[1] || '';
+                    const bin = atob(b64);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let bi = 0; bi < bin.length; bi++) bytes[bi] = bin.charCodeAt(bi);
+                    jpegPages.push({ w: pageW, h: pageH, bytes });
+                }
+                const pdfBytes = window.LTDMinMapObsStore.buildA4PdfBytesFromJpegs(jpegPages);
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                const u = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = u; a.download = safeFn.endsWith('.pdf') ? safeFn : (safeFn + '.pdf');
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => { try { URL.revokeObjectURL(u); } catch (e) {} }, 3000);
+                return { ok: true, source: 'generated', pages: jpegPages.length, filename: a.download };
+            } finally {
+                try { host.remove(); } catch (e) {}
+            }
+        }
+        window.downloadStudentTopicPdf = downloadStudentTopicPdf;
 
         function editTopicFromLibrary(id) {
             const topic = savedTopics.find(t => t.id === id);
