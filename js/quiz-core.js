@@ -13396,15 +13396,18 @@ const COLS = 24;
                 showModal('Chưa sẵn sàng', 'Trình tạo PDF A4 chưa nạp xong, hãy thử tải lại trang.', 'warning');
                 return { ok: false, error: 'renderer_missing' };
             }
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'position:fixed;left:0;top:0;width:794px;opacity:0;pointer-events:none;z-index:-9999;overflow:visible;';
             const host = document.createElement('div');
-            host.style.cssText = 'position:fixed;left:-99999px;top:0;width:794px;background:#fff;color:#111;padding:34px 40px;font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.45';
+            host.style.cssText = 'position:static;width:794px;background:#fff;color:#111;padding:34px 40px;font-family:"Segoe UI",system-ui,sans-serif;font-size:14px;line-height:1.45';
             host.innerHTML = buildStudentTopicPrintHtml(topic);
-            document.body.appendChild(host);
+            wrap.appendChild(host);
+            document.body.appendChild(wrap);
             try {
                 if (typeof window.renderMathInElement === 'function') {
                     window.renderMathInElement(host, { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }], throwOnError: false });
                 }
-                const fullCanvas = await window.modernScreenshot.domToCanvas(host, { scale: 2, backgroundColor: '#ffffff' });
+                const fullCanvas = await window.modernScreenshot.domToCanvas(host, { scale: 2, backgroundColor: '#ffffff', style: { opacity: '1' } });
                 const pageW = 1654, pageH = 2339;
                 const scaleX = pageW / fullCanvas.width;
                 const srcSliceH = Math.floor(pageH / scaleX);
@@ -13432,7 +13435,7 @@ const COLS = 24;
                 setTimeout(() => { try { URL.revokeObjectURL(u); } catch (e) {} }, 3000);
                 return { ok: true, source: 'generated', pages: jpegPages.length, filename: a.download };
             } finally {
-                try { host.remove(); } catch (e) {}
+                try { wrap.remove(); } catch (e) {}
             }
         }
         window.downloadStudentTopicPdf = downloadStudentTopicPdf;

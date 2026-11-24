@@ -4235,8 +4235,19 @@
         loadTopicFromDrive: loadTopicFromDrive,
         saveImageToDrive: saveImageToDrive,
         loadImageFromDrive: loadImageFromDrive,
-        saveFileToDrive: saveImageToDrive,
-        loadFileFromDrive: loadImageFromDrive,
+        saveFileToDrive: function (fileId, dataUrl) {
+            if (!fileId || !dataUrl) return Promise.resolve({ ok: false, error: 'Thiếu fileId hoặc dataUrl.' });
+            return saveTopicToDrive({ id: String(fileId), isAttachment: true, dataUrl: String(dataUrl), updatedAt: Date.now() });
+        },
+        loadFileFromDrive: function (fileId) {
+            if (!fileId) return Promise.resolve({ ok: false, error: 'Thiếu fileId.' });
+            return loadTopicFromDrive(String(fileId)).then(function (res) {
+                if (res && res.ok && res.data && res.data.dataUrl) {
+                    return { ok: true, dataUrl: res.data.dataUrl };
+                }
+                return { ok: false, error: (res && res.error) || 'Không tìm thấy tệp trên Drive.' };
+            });
+        },
         enqueueTopicSync: enqueueTopicSync,
         getTopicOutboxCount: getTopicOutboxCount,
         flushTopicOutbox: flushTopicOutbox,
