@@ -12768,8 +12768,8 @@ const COLS = 24;
                             ${(() => {
                                 if (isStudentMode || typeof folderDeepStats !== 'function') return '';
                                 const st = folderDeepStats(f.id);
-                                if (!st || !st.total) return '<span class="px-2 py-0.5 rounded-full text-[12px] font-extrabold bg-slate-100 text-slate-500">0 bài</span>';
-                                return `<span class="px-2.5 py-0.5 rounded-full text-[12px] font-extrabold bg-sky-100 text-sky-800">${st.total} bài</span>` + (st.published ? `<span class="px-2.5 py-0.5 rounded-full text-[12px] font-extrabold bg-emerald-100 text-emerald-800">${st.published} đã xuất bản</span>` : '');
+                                if (!st || !st.topics) return '<span class="px-2 py-0.5 rounded-full text-[12px] font-extrabold bg-slate-100 text-slate-500">0 bài</span>';
+                                return `<span class="px-2.5 py-0.5 rounded-full text-[12px] font-extrabold bg-sky-100 text-sky-800">${st.topics} bài</span>` + (st.published ? `<span class="px-2.5 py-0.5 rounded-full text-[12px] font-extrabold bg-emerald-100 text-emerald-800">${st.published} đã xuất bản</span>` : '');
                             })()}
                         </div>
                     </div>
