@@ -2107,53 +2107,76 @@ details.obs-acc.obs-grp-rose[open] > summary { border-bottom-color: rgba(251,113
 .mm-deck-tab { flex: 1; padding: 5px 8px; border-radius: 7px; border: 1px solid #334155; background: #1e293b; color: #cbd5e1; font-size: 11.5px; font-weight: 700; cursor: pointer; text-align: center; }
 .mm-deck-tab.active { background: #0284c7; border-color: #38bdf8; color: #fff; }
 
-/* === [MT-26] MinMap Single-Row Toolbar & 1-Tap Folder Chips === */
-#minmap-modal .vp-bar {
-    display: flex;
+/* === [MT-26] MinMap Single-Row Toolbar (.vp-topbar) & 1-Tap Folder Chips === */
+#minmap-modal .vp-topbar {
+    display: flex !important;
     flex-wrap: nowrap !important;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    padding: 6px 10px;
-    overflow-x: auto;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 5px !important;
+    padding: 6px 10px !important;
+    overflow-x: auto !important;
     scrollbar-width: thin;
 }
-#minmap-modal .vp-bar-group {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 5px;
-    flex-shrink: 0;
+#minmap-modal .vp-topbar .vp-bar-group {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: 4px !important;
+    flex-shrink: 0 !important;
 }
-#minmap-modal .vp-bar .vp-pill-group,
-#minmap-modal .vp-bar .vp-quick-fs {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    height: 28px;
-    padding: 0 5px;
-    flex-shrink: 0;
+#minmap-modal .vp-topbar .vp-seg-tabs {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    height: 28px !important;
+    padding: 2px !important;
+    gap: 2px !important;
+    flex-shrink: 0 !important;
 }
-#minmap-modal .vp-bar .vp-select,
-#minmap-modal .vp-bar .vp-btn-sm,
-#minmap-modal .vp-bar .vp-btn-png,
-#minmap-modal .vp-bar .vp-close-sm {
-    height: 28px;
-    font-size: 12px;
-    line-height: 1;
-    padding: 0 8px;
-    white-space: nowrap;
-    flex-shrink: 0;
+#minmap-modal .vp-topbar .vp-tab-btn {
+    height: 24px !important;
+    padding: 0 7px !important;
+    font-size: 11.5px !important;
+    line-height: 1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    white-space: nowrap !important;
 }
-#minmap-modal .vp-bar .vp-num-input {
-    height: 24px;
-    font-size: 12px;
-    padding: 0 2px;
+#minmap-modal .vp-topbar .vp-pill-group,
+#minmap-modal .vp-topbar .vp-quick-fs {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    height: 28px !important;
+    padding: 0 4px !important;
+    flex-shrink: 0 !important;
 }
-#minmap-modal .vp-bar .vp-step-btn {
-    width: 20px;
-    height: 22px;
-    font-size: 12px;
+#minmap-modal .vp-topbar .vp-select,
+#minmap-modal .vp-topbar .vp-btn-sm,
+#minmap-modal .vp-topbar .vp-btn-png,
+#minmap-modal .vp-topbar .vp-close-sm {
+    height: 28px !important;
+    font-size: 11.5px !important;
+    line-height: 1 !important;
+    padding: 0 7px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+}
+#minmap-modal .vp-topbar #mm-font-select { max-width: 86px; padding: 0 4px !important; }
+#minmap-modal .vp-topbar #mm-slogan-theme-select { max-width: 82px; padding: 0 4px !important; }
+#minmap-modal .vp-topbar .vp-num-input {
+    height: 22px !important;
+    font-size: 11.5px !important;
+    padding: 0 2px !important;
+}
+#minmap-modal .vp-topbar .vp-step-btn {
+    width: 18px !important;
+    height: 20px !important;
+    font-size: 11px !important;
+    padding: 0 !important;
 }
 .mm-folder-chips-wrap {
     margin-left: 92px;
