@@ -791,7 +791,7 @@
             '        <div class="vp-pill-group" id="mm-teacher-img-box" title="Ảnh khung đang chọn">',
             '          <span style="font-size:11px">🖼️</span>',
             '          <button type="button" class="vp-step-btn" id="mm-img-w-dec">−</button>',
-            '          <input type="number" class="vp-num-input" id="mm-img-w-input" min="30" max="100" value="100" style="width:38px">',
+            '          <input type="number" class="vp-num-input" id="mm-img-w-input" min="30" max="100" value="100" style="width:44px">',
             '          <button type="button" class="vp-step-btn" id="mm-img-w-inc">+</button>',
             '          <span style="font-size:10px;color:#94a3b8">%</span>',
             '          <button type="button" class="vp-btn-sm" id="mm-img-remove" title="Xóa ảnh khung">🗑️</button>',
@@ -812,7 +812,7 @@
             '        </select>',
             '        <input type="number" class="vp-num-input" id="mm-export-seq" min="1" value="1" style="width:38px;height:26px;text-align:center" title="Số thứ tự ảnh">',
             '        <button type="button" class="vp-btn-png compact" id="vp-download-png">↓ PNG</button>',
-            '        <button type="button" class="vp-btn-png compact" id="vp-save-obs-deck" style="background:#059669;border-color:#34d399;" title="Lưu slide GV hiện tại vào Bộ bài giảng OBS">💾 Lưu vào Bài giảng</button>',
+            '        <button type="button" class="vp-btn-png compact" id="vp-save-obs-deck" style="background:#059669;border-color:#34d399;" title="Lưu đồng thời Slide GV & Phiếu HS A4 kèm Markdown">💾 Lưu</button>',
             '        <button type="button" class="vp-btn-png compact" id="vp-open-obs-deck" style="background:#7c3aed;border-color:#a78bfa;" title="Mở khung quản lý Bộ bài giảng OBS & Đẩy vào Thư viện">📚 Bài giảng (<span id="mm-deck-count">0</span>)</button>',
             '        <button type="button" class="vp-close-sm" id="btn-close-minmap" title="Đóng MinMap">✕</button>',
             '      </div>',
@@ -870,7 +870,8 @@
             '    <div class="mm-deck-field"><span>Tên bài:</span><input type="text" id="mm-push-title" class="mm-deck-sel" placeholder="VD: Chương 4 Polymer"></div>',
             '    <div class="mm-deck-field"><span>Khối lớp:</span><select id="mm-dest-grade" class="mm-deck-sel"><option value="ALL">🎓 Tất cả khối</option><option value="Lớp 12">Lớp 12</option><option value="Lớp 11">Lớp 11</option><option value="Lớp 10">Lớp 10</option></select></div>',
             '    <div class="mm-deck-field"><span>Tìm thư mục:</span><input type="text" id="mm-dest-folder-q" class="mm-deck-sel" placeholder="🔍 Gõ tên thư mục (VD: Chương 4, Polymer)..."></div>',
-            '    <div class="mm-deck-field"><span>Thư mục:</span><select id="mm-dest-folder" class="mm-deck-sel"></select></div>',
+            '    <div class="mm-folder-chips-wrap"><div id="mm-dest-folder-meta" class="mm-folder-chips-meta"></div><div id="mm-dest-folder-chips" class="mm-folder-chips-list"></div></div>',
+            '    <div class="mm-deck-field hidden" aria-hidden="true"><span>Thư mục:</span><select id="mm-dest-folder" class="mm-deck-sel"></select></div>',
             '    <div class="mm-push-actions">',
             '      <button type="button" class="vp-btn-sm" id="mm-push-cancel-btn">Hủy</button>',
             '      <button type="button" class="vp-btn-png compact" id="mm-push-confirm-btn">✅ Xác nhận đẩy</button>',
@@ -1445,6 +1446,7 @@
                 return /\bhoa\b|hoa\s*hoc/.test(s);
             }
             var qNorm = noAccent(qInp ? qInp.value : '').replace(/\s+/g, ' ');
+            var prevVal = fSel.value || '';
             var opts = '<option value="">(Ngoài thư mục — Gốc Hóa học)</option>';
             var matched = allF.filter(function (f) {
                 if (!f) return false;
@@ -1452,7 +1454,7 @@
                 var fullP = pathOf(f);
                 if (selGrade !== 'ALL') {
                     var fg = detectFolderGrade(f, fullP);
-                    if (fg && fg !== selGrade) return false;
+                    if (!fg || fg !== selGrade) return false;
                 }
                 if (qNorm && noAccent(fullP).replace(/\s+/g, ' ').indexOf(qNorm) === -1) return false;
                 return true;
@@ -1462,8 +1464,28 @@
                 opts += '<option value="' + escapeHtml(f.id) + '" title="' + escapeHtml(fullP) + '">' + escapeHtml(fullP) + '</option>';
             });
             fSel.innerHTML = opts;
+            var stillValid = matched.some(function (f) { return f.id === prevVal; });
+            if (stillValid) fSel.value = prevVal;
+            else if (qNorm && matched.length) fSel.value = matched[0].id;
+            else fSel.value = '';
+            var curVal = fSel.value || '';
             var curOpt = fSel.options && fSel.selectedIndex >= 0 ? fSel.options[fSel.selectedIndex] : null;
             fSel.title = curOpt ? (curOpt.title || curOpt.textContent || '') : '';
+
+            var metaEl = $('#mm-dest-folder-meta');
+            var chipsEl = $('#mm-dest-folder-chips');
+            if (metaEl) {
+                metaEl.textContent = 'Tìm thấy ' + matched.length + ' thư mục (' + (selGrade === 'ALL' ? 'Tất cả khối' : selGrade) + ') — bấm 1 chạm để chọn:';
+            }
+            if (chipsEl) {
+                var chipRows = '<button type="button" class="mm-folder-chip' + (curVal === '' ? ' active' : '') + '" data-fid=""><span>📂 (Ngoài thư mục — Gốc Hóa học)</span><span>' + (curVal === '' ? '✓' : '') + '</span></button>';
+                matched.forEach(function (f) {
+                    var fullP = pathOf(f);
+                    var isAct = (curVal === f.id);
+                    chipRows += '<button type="button" class="mm-folder-chip' + (isAct ? ' active' : '') + '" data-fid="' + escapeHtml(f.id) + '"><span>📁 ' + escapeHtml(fullP) + '</span><span>' + (isAct ? '✓' : '') + '</span></button>';
+                });
+                chipsEl.innerHTML = chipRows;
+            }
         }
         function renderDeckDrawer() {
             loadDecksMeta();
@@ -2032,6 +2054,23 @@
         $('#mm-export-hs-zip').addEventListener('click', exportHsDeckZip);
         $('#mm-dest-grade').addEventListener('change', populateDestPickers);
         $('#mm-dest-folder-q').addEventListener('input', populateDestPickers);
+        var _chipsBox = $('#mm-dest-folder-chips');
+        if (_chipsBox) {
+            _chipsBox.addEventListener('click', function (e) {
+                var btn = e.target && e.target.closest ? e.target.closest('button[data-fid]') : null;
+                if (!btn) return;
+                var fid = btn.getAttribute('data-fid') || '';
+                var sel = $('#mm-dest-folder');
+                if (sel) sel.value = fid;
+                var allBtns = _chipsBox.querySelectorAll('button[data-fid]');
+                for (var i = 0; i < allBtns.length; i++) {
+                    var act = allBtns[i].getAttribute('data-fid') === fid;
+                    allBtns[i].classList.toggle('active', act);
+                    var sp = allBtns[i].querySelectorAll('span');
+                    if (sp.length > 1) sp[1].textContent = act ? '✓' : '';
+                }
+            });
+        }
         $('#mm-dest-folder').addEventListener('change', function (e) {
             var sel = e.target;
             var opt = sel.options && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
