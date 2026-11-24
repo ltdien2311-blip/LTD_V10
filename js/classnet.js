@@ -790,8 +790,21 @@
 
     function collect() {
         var topics = (typeof savedTopics !== 'undefined') ? arr(savedTopics) : [];
-        var stu = isStu(), classes, myCls = [], asgSet = {}, mineIds = {}, me = '';
+        var stu = isStu(), classes, myCls = [], asgSet = {}, mineIds = {}, me = '', stuCls = '';
         if (stu) {
+            try {
+                if (typeof getStudentIdentity === 'function') {
+                    var _sid = getStudentIdentity();
+                    if (_sid && _sid.cls) stuCls = String(_sid.cls).trim();
+                }
+            } catch (e) {}
+            topics = topics.filter(function (t) {
+                if (!t) return false;
+                if (typeof window !== 'undefined' && typeof window.LTDIsTopicAllowedForStudent === 'function') {
+                    return window.LTDIsTopicAllowedForStudent(t);
+                }
+                return Boolean(t.isPublished);
+            });
             myCls = myClasses(); classes = myCls; me = myName();
             myCls.forEach(function (c) { arr(c.t).forEach(function (t) { asgSet[t] = 1; }); arr(c.ids || [c.id]).forEach(function (i) { mineIds[i] = 1; }); });
         } else {
@@ -917,7 +930,7 @@
 
         return {
             stu: stu, cap: cap, assignedCount: assignedCount, lbAll: lbAll, lbWeek: lbWeek, myCount: myCls.length,
-            sigExtra: cloud.ts + '|' + boardMode + '|' + myCls.length + '|' + assignedCount + '|' + lbAll.length + '|' + lbWeek.length + '|' + me,
+            sigExtra: cloud.ts + '|' + boardMode + '|' + myCls.length + '|' + assignedCount + '|' + lbAll.length + '|' + lbWeek.length + '|' + me + '|' + stuCls + '|' + topics.length,
             classSubj: classSubj, topics: topics, byId: byId, subjList: subjList, newDaily: newDaily, newCount: newCount,
             classes: classes, studentsPerClass: studentsPerClass, studentsTotal: studentsTotal,
             week: week, daily: daily, star: star, stars: stars, starWeek: starWeek, picked: picked,

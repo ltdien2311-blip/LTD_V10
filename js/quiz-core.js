@@ -11926,7 +11926,10 @@ const COLS = 24;
 
         function openLibrary() {
             if (isStudentMode && window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled() && typeof window.GasBridge.pullPublishedForStudent === 'function') {
-                window.GasBridge.pullPublishedForStudent();
+                Promise.resolve(window.GasBridge.pullPublishedForStudent()).then(() => {
+                    try { renderLibraryList(); } catch (e) {}
+                    try { if (window.CODE83Home && typeof window.CODE83Home.refresh === 'function') window.CODE83Home.refresh(); } catch (e) {}
+                }).catch(() => {});
             }
             if (libCurrentFolderId && !getFolderById(libCurrentFolderId)) libCurrentFolderId = null;
             renderLibraryList();
@@ -11973,7 +11976,7 @@ const COLS = 24;
         }
         function _inferGradeFromClass(cls) {
             const c = String(cls || '').trim();
-            const m = c.match(/\b(10|11|12)/);
+            const m = c.match(/(?:^|\b)(?:l[oớ]p\s*)?(10|11|12)/i);
             return m ? ('Lớp ' + m[1]) : '';
         }
         function isTopicAllowedForStudent(t) {
@@ -12038,18 +12041,37 @@ const COLS = 24;
             saveToStorage();
             renderLibraryList();
 
-            if (window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled() && typeof window.GasBridge.publishTopicToDrive === 'function') {
-                window.GasBridge.publishTopicToDrive(savedTopics[idx]);
-            } else if (window.CloudSync) {
+            const useGasPub = Boolean(window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled() && typeof window.GasBridge.publishTopicToDrive === 'function');
+            if (newStatus) {
+                openPublishLinkModal(id, true);
+            }
+            if (useGasPub) {
+                if (newStatus) _plSet('publink-server', '⏳ Đang đẩy bài & PUB_INDEX.json lên Google Drive...', 'text-amber-700');
+                Promise.resolve(window.GasBridge.publishTopicToDrive(savedTopics[idx])).then(res => {
+                    if (newStatus) {
+                        if (res && res.ok) {
+                            _plSet('publink-server', '✅ Đã xuất bản lên Google Drive (PUB_INDEX.json) — học sinh mở app là thấy ngay.', 'text-emerald-700');
+                        } else {
+                            _plSet('publink-server', '⚠️ Lỗi đẩy Drive: ' + ((res && res.error) || 'Không rõ lỗi. Hãy kiểm tra kết nối GAS #1.'), 'text-red-600');
+                        }
+                    } else {
+                        const msg = (res && res.ok)
+                            ? `Chủ đề "${savedTopics[idx].subtitle}" đã được hủy xuất bản trên Google Drive (PUB_INDEX.json).`
+                            : `Đã hủy xuất bản trên máy nhưng đồng bộ Drive gặp lỗi: ${(res && res.error) || 'Không rõ'}`;
+                        showModal('Đã hủy xuất bản', msg, (res && res.ok) ? 'info' : 'warning');
+                    }
+                }).catch(err => {
+                    if (newStatus) _plSet('publink-server', '⚠️ Lỗi đẩy Drive: ' + (err && err.message ? err.message : String(err)), 'text-red-600');
+                });
+                return;
+            }
+            if (window.CloudSync) {
                 try {
                     if (newStatus && typeof CloudSync.publishNow === 'function') CloudSync.publishNow(id);
                     else if (typeof CloudSync.schedule === 'function') CloudSync.schedule(true);
                 } catch (e) {}
             }
-            if (newStatus) {
-                openPublishLinkModal(id, true);
-                return;
-            }
+            if (newStatus) return;
             showModal('Đã hủy xuất bản', `Chủ đề "${savedTopics[idx].subtitle}" đã được ẩn khỏi mục Thư viện của Học sinh.`, 'info');
         }
 
@@ -12133,6 +12155,11 @@ const COLS = 24;
         }
         function buildPublishedLink(topic) {
             const base = getEffectiveBaseUrl();
+            try {
+                if (window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled()) {
+                    return { url: base + '?id=' + encodeURIComponent(topic.id) + '&mode=hs', short: true, base: base };
+                }
+            } catch (e) {}
             let suf = '';
             try { suf = (window.CloudSync && CloudSync.linkSuffix && CloudSync.linkSuffix()) || ''; } catch (e) {}
             if (suf) return { url: base + '?id=' + encodeURIComponent(topic.id) + '&mode=hs' + suf, short: true, base: base };
@@ -12158,6 +12185,9 @@ const COLS = 24;
         }
         function _publinkVerify(topicId, n) {
             clearTimeout(_publinkTimer);
+            try {
+                if (window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled()) return;
+            } catch (e) {}
             const api = window.CloudSync && CloudSync.api;
             const m = _plEl('publink-modal');
             if (!api || !m || m.classList.contains('hidden') || _publinkTopicId !== topicId) return;

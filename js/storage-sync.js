@@ -4060,18 +4060,24 @@
                     upsertLocalTopicSafe(rt);
                 }
             });
-            // Mark topics no longer in PUB_INDEX as unpublished on student side
+            // Purge stale/sample/unpublished topics not in PUB_INDEX on student side
             var allLocal = getGlobalVarSafe('savedTopics', []);
             if (Array.isArray(allLocal)) {
-                allLocal.forEach(function (lt) {
-                    if (lt && lt.id && lt.isPublished && !remoteIds[String(lt.id)]) {
-                        lt.isPublished = false;
-                    }
+                var filteredLocal = allLocal.filter(function (lt) {
+                    return lt && lt.id && remoteIds[String(lt.id)];
+                });
+                allLocal.length = 0;
+                filteredLocal.forEach(function (lt) { allLocal.push(lt); });
+            }
+            if (typeof window !== 'undefined' && Array.isArray(window.__PRELOADED_LIBRARY__)) {
+                window.__PRELOADED_LIBRARY__ = window.__PRELOADED_LIBRARY__.filter(function (pt) {
+                    return pt && pt.id && remoteIds[String(pt.id)];
                 });
             }
             try { if (typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.dedupeFolders === 'function') window.LTDLibBridge.dedupeFolders(); } catch (e) {}
             try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) {}
             try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) {}
+            try { if (typeof window !== 'undefined' && window.CODE83Home && typeof window.CODE83Home.refresh === 'function') window.CODE83Home.refresh(); } catch (e) {}
             return { ok: true, count: remoteTopics.length };
         });
     }
