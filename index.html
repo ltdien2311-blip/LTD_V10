@@ -96,7 +96,7 @@
     <!-- CODE67: QUẢN LÍ LỚP HỌC có nút ☁️ ĐỒNG BỘ (Firebase) như Thư viện: (1) Nút ĐỒNG BỘ + khung trạng thái ngay trong Quản lí lớp học; (2) Lớp tự đẩy lên máy chủ khi bật đồng bộ / khi lưu / mỗi 10 giây, báo lỗi rõ ràng; (3) Link + QR vào lớp cho học sinh; (4) Học sinh có tên trong danh sách lớp tự vào lớp; (5) Học sinh nhập mã kết nối nếu chưa có link; (6) Đề được giao tự đưa lên máy chủ và tự tải khi bấm Làm bài -->
     <!-- CODE66: thêm LỚP HỌC cho học sinh + phê duyệt của giáo viên -->
     <script>(function(){try{var h=location.hostname||'',loc=location.protocol==='file:'||/^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\])$/i.test(h);document.documentElement.classList.toggle('is-hosted',!loc);}catch(e){}})();</script>
-        <link rel="stylesheet" href="css/app.css?v=mt17b">
+        <link rel="stylesheet" href="css/app.css?v=mt23a">
     <link rel="stylesheet" href="css/minmap.css?v=mt11">
     <script src="js/core-utils.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
@@ -316,7 +316,6 @@ window.SAKB = {
                     <button id="btn-header-start" type="button" onclick="startStudentQuiz()" class="no-print hidden bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white text-[14px] font-black px-3.5 py-1.5 rounded-full shadow-md whitespace-nowrap transition-transform active:scale-95 uppercase">
                         ▶ BẮT ĐẦU
                     </button>
-                    <button type="button" id="btn-header-lecture" style="display:none" class="px-3 py-1.5 rounded-xl font-black text-white bg-gradient-to-r from-pink-500 to-rose-600 shadow-sm text-[13px]">🎥 Xem bài giảng</button>
                     <button id="btn-header-home" type="button" onclick="goHomeFromQuiz()" title="Về trang chủ" class="no-print hidden items-center gap-1.5 bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white text-[15px] font-black px-3.5 py-1.5 rounded-full shadow-md whitespace-nowrap transition-transform active:scale-95 uppercase">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 11l9-8 9 8M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"></path></svg>
                         <span>HOME</span>
@@ -1178,7 +1177,7 @@ window.SAKB = {
     
     
     
-    <script src="js/quiz-core.js?v=mt21b"></script>
+    <script src="js/quiz-core.js?v=mt23a"></script>
     <script>
         // [CODE28] Điện thoại: thu gọn mục chia điểm mặc định để thấy câu hỏi ngay (bấm tiêu đề để mở rộng)
         (function(){
@@ -1572,6 +1571,6 @@ window.SAKB = {
 </div>
 
 <script src="js/obs-stage.js?v=mt19b"></script>
-<script src="js/video-lecture.js?v=mt16b"></script>
+<script src="js/video-lecture.js?v=mt23a"></script>
 <script src="js/minmap.js?v=mt19b"></script>
 </body></html>

@@ -705,7 +705,10 @@ html.is-hosted #btn-export-github-html{display:none !important;visibility:hidden
         body.layout-portrait #left-sidebar #btn-mix-sidebar,
         body.is-student #left-sidebar #btn-mix-sidebar,
         body.is-student #left-sidebar #btn-minmap-sidebar,
-        body.is-student #left-sidebar #btn-bank { display: none !important; }
+        body.is-student #left-sidebar #btn-bank,
+        body.is-student #left-sidebar #btn-student-class,
+        body.is-student #left-sidebar .teacher-only-btn,
+        body.is-student #btn-header-lecture { display: none !important; }
         @media (hover: none) and (pointer: coarse) and (max-width: 950px) { #left-sidebar #btn-mix-sidebar { display: none !important; } }
         @media (max-width: 700px) { #left-sidebar #btn-mix-sidebar { display: none !important; } }
         #left-sidebar .side-btn:active { transform: scale(0.96); }

@@ -472,9 +472,8 @@
     function syncHeaderButton(topic) {
         var btn = global.document && global.document.getElementById('btn-header-lecture');
         if (!btn) return;
-        var hasV = !!(topic && Array.isArray(topic.videoLectures) && topic.videoLectures.length);
-        btn.style.display = hasV ? '' : 'none';
-        btn.onclick = function () { if (topic) openStudentPlayer(topic); };
+        btn.style.display = 'none';
+        btn.onclick = null;
     }
 
     function checkBootLectureParam() {

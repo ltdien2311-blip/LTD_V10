@@ -4562,7 +4562,9 @@ const COLS = 24;
             if (role === 'HS') {
                 isStudentMode = true;
                 document.body.classList.add('is-student');   // [CODE91]
-                { const scb = document.getElementById('btn-student-class'); if (scb) scb.classList.remove('hidden'); }
+                { const scb = document.getElementById('btn-student-class'); if (scb) scb.classList.add('hidden'); }
+                try { document.querySelectorAll('#left-sidebar .teacher-only-btn').forEach(el => { if (el.id !== 'main-drive-status') el.classList.remove('hidden'); }); } catch (e) {}
+                try { document.querySelectorAll('#left-sidebar .teacher-only-btn').forEach(el => el.classList.add('hidden')); } catch (e) {}
                 if (mainClassWrapper) mainClassWrapper.classList.remove('hidden');
                 if (mainNameWrapper) {
                     mainNameWrapper.classList.remove('col-span-12');
