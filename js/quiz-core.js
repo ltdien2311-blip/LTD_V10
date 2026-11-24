@@ -12804,9 +12804,19 @@ const COLS = 24;
 
             const _noAcc = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
             const _libSearchQ = _noAcc((document.getElementById('lib-search-input')?.value || '').trim());
+            const topicMatchesGradeFilter = t => {
+                if (filterGrade === 'ALL') return true;
+                if (t.grade === filterGrade) return true;
+                if (isStudentMode && t.publishScope && t.publishScope.mode) {
+                    const sc = t.publishScope;
+                    if (sc.mode === 'grades' && Array.isArray(sc.grades) && sc.grades.indexOf(filterGrade) >= 0) return true;
+                    if (sc.mode === 'classes' && Array.isArray(sc.classNames) && sc.classNames.some(cn => _inferGradeFromClass(cn) === filterGrade)) return true;
+                }
+                return false;
+            };
             const topicVisible = t => {
                 if (isStudentMode && !isTopicAllowedForStudent(t)) return false;
-                if (filterGrade !== 'ALL' && t.grade !== filterGrade) return false;
+                if (!topicMatchesGradeFilter(t)) return false;
                 if (_libSearchQ && !_noAcc(t.subtitle || t.title || '').includes(_libSearchQ)) return false;
                 return true;
             };

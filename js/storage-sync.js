@@ -1949,6 +1949,12 @@
     function studentBannerHtml() {
         if (!isStu()) return '';
         var box = 'margin:0 0 12px 0;padding:10px 14px;border-radius:14px;font-weight:800;font-size:14px;line-height:1.5;';
+        if (isDriveLibManaged() && window.GasBridge && typeof window.GasBridge.getStuPullStatus === 'function') {
+            var st = window.GasBridge.getStuPullStatus();
+            if (!st) return '<div style="' + box + 'background:#eff6ff;border:2px solid #bfdbfe;color:#1d4ed8">⏳ Đang đồng bộ danh sách bài từ Google Drive...</div>';
+            if (st.ok) return '<div style="' + box + 'background:#ecfdf5;border:2px solid #6ee7b7;color:#047857">✅ Đã đồng bộ ' + (st.count || 0) + ' bài xuất bản từ Google Drive</div>';
+            return '<div style="' + box + 'background:#fef2f2;border:2px solid #fca5a5;color:#b91c1c">⚠️ Đồng bộ Google Drive: ' + esc(st.error || 'Chưa có dữ liệu') + '</div>';
+        }
         if (!effStu()) {
             if (window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled()) {
                 return '<div style="' + box + 'background:#ecfdf5;border:2px solid #6ee7b7;color:#047857">✅ Đã kết nối máy chủ Google Sheets (Hướng A).</div>';
@@ -2509,6 +2515,7 @@
             '<input id="gas-key" type="text" style="' + inp + ';font-size:13.5px" placeholder="Để trống nếu không dùng khóa" value="' + esc(gKeyVal) + '"></div>' +
             '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
             '<button type="button" onclick="CloudSync.saveGasConfig()" style="' + btn('#0284c7') + '">💾 Lưu cấu hình GAS</button>' +
+            '<button type="button" onclick="CloudSync.resetGasUrlsUI()" style="' + btn('#0f766e') + '">🔄 Nạp link mặc định</button>' +
             (c ? '<button type="button" onclick="CloudSync.disconnect()" style="' + btn('#dc2626') + '">Ngắt kết nối Firebase</button>' : '') +
             '</div>';
 
@@ -2795,6 +2802,17 @@
         hintHtml: hintHtml, studentBannerHtml: studentBannerHtml, studentRefresh: studentRefresh, studentConnect: studentConnect, downloadConfigJson: downloadConfigJson, pullAllResults: pullAllResults, noteResultDeleted: noteResultDeleted,
         adoptOrphanResults: adoptOrphanResults, unifySameTitleResults: unifySameTitleResults,
         linkSuffix: function () { var t = (S.cfg || effStu()) ? token() : ''; return t ? '&cl=' + t : ''; },
+        resetGasUrlsUI: function () {
+            if (!window.GasBridge || typeof window.GasBridge.resetToEmbeddedConfig !== 'function') return;
+            var res = window.GasBridge.resetToEmbeddedConfig();
+            if (res && res.ok) {
+                var ta = $('gas-urls');
+                if (ta) ta.value = (res.config.urls || []).join('\n');
+                var box = $('gas-test-status');
+                if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:#ecfdf5;color:#047857;font-weight:800;font-size:13.5px">✅ Đã nạp lại ' + res.config.urls.length + ' link mặc định từ embedded-data.js.</div>';
+                setMsg('✅ Đã nạp lại link mặc định.', true);
+            }
+        },
         saveGasConfig: function () {
             if (!window.GasBridge) return;
             var mode = ($('gas-mode') || {}).value || 'hybrid';
@@ -2993,6 +3011,8 @@
 ====================================================================== */
 (function () {
     var LS_GAS_CFG = 'matrix_gas_cfg_v1';
+    var LS_GAS_EMB_SIG = 'matrix_gas_emb_sig_v1';
+    var lastStuPullStatus = null;
     var EXPECTED_SHEETS = ['DeThi_CauHinh', 'KetQua_NopBai', 'LopHoc_TaiKhoan', 'PhongThi_Live'];
     var rrIndex = 0;
 
@@ -3032,22 +3052,57 @@
             }
         } catch (e) { }
         var emb = (typeof window !== 'undefined' && window.__GAS_CONFIG__ && typeof window.__GAS_CONFIG__ === 'object') ? window.__GAS_CONFIG__ : null;
+        var embParsed = emb ? parseUrls(emb.urls || []) : { valid: [] };
+        if (embParsed.valid.length) {
+            var embSig = embParsed.valid.join('|');
+            var prevSig = null;
+            try {
+                if (typeof localStorage !== 'undefined') prevSig = localStorage.getItem(LS_GAS_EMB_SIG);
+            } catch (e) { }
+            if (prevSig !== embSig) {
+                saved = saved && typeof saved === 'object' ? saved : {};
+                saved.urls = embParsed.valid.slice();
+                if (!saved.mode) saved.mode = emb.mode || 'hybrid';
+                if (!saved.key && emb.key) saved.key = emb.key;
+                try {
+                    if (typeof localStorage !== 'undefined') {
+                        localStorage.setItem(LS_GAS_CFG, JSON.stringify({ mode: normalizeMode(saved.mode), urls: saved.urls, key: String(saved.key || '').trim() }));
+                        localStorage.setItem(LS_GAS_EMB_SIG, embSig);
+                    }
+                } catch (e) { }
+            }
+        }
         if (!saved && emb) saved = emb;
         saved = saved || {};
         var parsed = parseUrls(saved.urls || []);
-        if (!parsed.valid.length && emb) {
-            var embParsed = parseUrls(emb.urls || []);
-            if (embParsed.valid.length) {
-                parsed = embParsed;
-                if (!saved.mode) saved.mode = emb.mode;
-                if (!saved.key && emb.key) saved.key = emb.key;
-            }
+        if (!parsed.valid.length && embParsed.valid.length) {
+            parsed = embParsed;
+            if (!saved.mode) saved.mode = emb.mode;
+            if (!saved.key && emb.key) saved.key = emb.key;
         }
         return {
             mode: normalizeMode(saved.mode),
             urls: parsed.valid,
             key: String(saved.key || '').trim()
         };
+    }
+
+    function resetToEmbeddedConfig() {
+        var emb = (typeof window !== 'undefined' && window.__GAS_CONFIG__ && typeof window.__GAS_CONFIG__ === 'object') ? window.__GAS_CONFIG__ : null;
+        var embParsed = emb ? parseUrls(emb.urls || []) : { valid: [] };
+        if (!embParsed.valid.length) return { ok: false, error: 'Không có link mặc định trong embedded-data.js.' };
+        var cfg = {
+            mode: normalizeMode(emb.mode || 'hybrid'),
+            urls: embParsed.valid.slice(),
+            key: String(emb.key || '').trim()
+        };
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(LS_GAS_CFG, JSON.stringify(cfg));
+                localStorage.setItem(LS_GAS_EMB_SIG, embParsed.valid.join('|'));
+            }
+        } catch (e) { }
+        return { ok: true, config: cfg };
     }
 
     function saveConfig(input) {
@@ -4012,7 +4067,11 @@
     function pullPublishedForStudent() {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         return loadPubIndexFromDrive().then(function (res) {
-            if (!res || !res.ok || !res.data) return { ok: false, error: (res && res.error) || 'Chưa có danh sách bài xuất bản.' };
+            if (!res || !res.ok || !res.data) {
+                lastStuPullStatus = { ok: false, error: (res && res.error) || 'Chưa có danh sách bài xuất bản.', ts: Date.now() };
+                try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) {}
+                return lastStuPullStatus;
+            }
             var data = res.data;
             var curFolders = getGlobalVarSafe('libraryFolders', null);
             var folderRemap = {};
@@ -4078,7 +4137,8 @@
             try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) {}
             try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) {}
             try { if (typeof window !== 'undefined' && window.CODE83Home && typeof window.CODE83Home.refresh === 'function') window.CODE83Home.refresh(); } catch (e) {}
-            return { ok: true, count: remoteTopics.length };
+            lastStuPullStatus = { ok: true, count: remoteTopics.length, ts: Date.now() };
+            return lastStuPullStatus;
         });
     }
 
@@ -4099,12 +4159,23 @@
 
     if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('online', function () { flushTopicOutbox(); });
-        setTimeout(function () { flushTopicOutbox(); }, 4000);
+        setTimeout(function () {
+            flushTopicOutbox();
+            try {
+                var isStuUrl = (typeof location !== 'undefined' && /[?&]mode=hs\b/i.test(location.search || ''));
+                var isStuVar = (window.LTDLibBridge && typeof window.LTDLibBridge.getVar === 'function' && window.LTDLibBridge.getVar('isStudentMode') === true);
+                if ((isStuUrl || isStuVar) && isGasEnabled()) {
+                    pullPublishedForStudent();
+                }
+            } catch (e) {}
+        }, 450);
     }
 
     window.GasBridge = {
         getConfig: getConfig,
         saveConfig: saveConfig,
+        resetToEmbeddedConfig: resetToEmbeddedConfig,
+        getStuPullStatus: function () { return lastStuPullStatus; },
         parseUrls: parseUrls,
         pickUrl: pickUrl,
         pickPrimaryUrl: pickPrimaryUrl,
