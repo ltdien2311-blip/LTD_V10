@@ -12763,7 +12763,15 @@ const COLS = 24;
                 <div class="min-w-0 flex-1 flex items-center gap-3">
                     <span class="text-4xl shrink-0">📁</span>
                     <div class="min-w-0">
-                        <h3 class="text-[22px] font-black text-slate-800 truncate">${_escHtml(f.name)}</h3>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h3 class="text-[22px] font-black text-slate-800 truncate">${_escHtml(f.name)}</h3>
+                            ${(() => {
+                                if (isStudentMode || typeof folderDeepStats !== 'function') return '';
+                                const st = folderDeepStats(f.id);
+                                if (!st || !st.total) return '<span class="px-2 py-0.5 rounded-full text-[12px] font-extrabold bg-slate-100 text-slate-500">0 bài</span>';
+                                return `<span class="px-2.5 py-0.5 rounded-full text-[12px] font-extrabold bg-sky-100 text-sky-800">${st.total} bài</span>` + (st.published ? `<span class="px-2.5 py-0.5 rounded-full text-[12px] font-extrabold bg-emerald-100 text-emerald-800">${st.published} đã xuất bản</span>` : '');
+                            })()}
+                        </div>
                     </div>
                 </div>
                 <div class="flex flex-wrap items-center justify-end gap-2 shrink-0">
@@ -12795,8 +12803,7 @@ const COLS = 24;
             container.innerHTML = '';
             /* [CODE75] Thanh trạng thái đồng bộ của học sinh (nằm ngoài danh sách để không bị xóa khi danh sách trống) */
             let stuHost = document.getElementById('stu-sync-host');
-            if (!stuHost && container.parentNode) { stuHost = document.createElement('div'); stuHost.id = 'stu-sync-host'; stuHost.style.cssText = 'padding:10px 20px 0 20px;background:#f1f5f9'; container.parentNode.insertBefore(stuHost, container); }
-            if (stuHost) stuHost.innerHTML = (isStudentMode && window.CloudSync && CloudSync.studentBannerHtml) ? CloudSync.studentBannerHtml() : '';
+            if (stuHost) { stuHost.innerHTML = ''; stuHost.style.display = 'none'; }
 
             const filterSubj = document.getElementById('lib-filter-subject')?.value || 'ALL';
             const filterGrade = document.getElementById('lib-filter-grade')?.value || 'ALL';
@@ -12817,7 +12824,10 @@ const COLS = 24;
             const topicVisible = t => {
                 if (isStudentMode && !isTopicAllowedForStudent(t)) return false;
                 if (!topicMatchesGradeFilter(t)) return false;
-                if (_libSearchQ && !_noAcc(t.subtitle || t.title || '').includes(_libSearchQ)) return false;
+                if (_libSearchQ) {
+                    const hay = _noAcc((t.subtitle || t.title || '') + ' ' + _getFolderBreadcrumbText(t.folderId));
+                    if (!hay.includes(_libSearchQ)) return false;
+                }
                 return true;
             };
 
@@ -12949,6 +12959,7 @@ const COLS = 24;
                             ${publishBadgeHtml}
                         </div>
                         <h3 class="text-[22px] font-black text-slate-800 truncate">${topic.subtitle}</h3>
+                        ${_libSearchQ && topic._searchFolderPath ? `<div class="text-[12.5px] font-bold text-indigo-600 mt-0.5 truncate">📁 ${_escHtml(topic._searchFolderPath)}</div>` : ''}
                     </div>
                     <div class="flex flex-wrap items-center justify-end gap-2 shrink-0">
                         ${actionButtonsHtml}
@@ -12956,6 +12967,33 @@ const COLS = 24;
                 `;
                 host.appendChild(card);
             };
+
+            const _getFolderBreadcrumbText = (fid) => {
+                const parts = [];
+                let c = getFolderById(fid), guard = 0;
+                while (c && guard++ < 20) { parts.unshift(c.name); c = getFolderById(c.parentId); }
+                return parts.join(' › ');
+            };
+
+            if (_libSearchQ) {
+                const matched = sortTopicsByOrder(savedTopics.filter(t => topicVisible(t)));
+                const bar = document.createElement('div');
+                bar.className = 'flex flex-wrap items-center justify-between gap-2 bg-white rounded-xl border-2 border-indigo-200 px-4 py-3 shadow-sm';
+                bar.innerHTML = `<div class="text-[17px] font-black text-indigo-900">🔍 Kết quả tìm kiếm toàn thư viện <span class="ml-2 px-2.5 py-0.5 rounded-full text-[13px] bg-indigo-100 text-indigo-700">${matched.length} bài khớp</span></div>`;
+                container.appendChild(bar);
+                matched.forEach(t => {
+                    t._searchFolderPath = _getFolderBreadcrumbText(t.folderId) || (t.subject || 'Hóa học');
+                    appendTopicCard(container, t);
+                    delete t._searchFolderPath;
+                });
+                if (!matched.length) {
+                    const empty = document.createElement('div');
+                    empty.className = 'text-center py-12 bg-white rounded-xl border border-dashed border-slate-300';
+                    empty.innerHTML = `<p class="text-xl font-black text-slate-600 uppercase mb-1">Không tìm thấy bài phù hợp</p><p class="text-[15px] font-bold text-slate-400">Thử nhập từ khóa khác hoặc chọn "Tất cả khối lớp".</p>`;
+                    container.appendChild(empty);
+                }
+                return;
+            }
 
             // Thư mục đang mở bị ẩn/xóa -> về màn hình chính
             let folder = getFolderById(libCurrentFolderId);
@@ -13127,7 +13165,6 @@ const COLS = 24;
                         if (window.LTDMinMapObsStore && typeof window.LTDMinMapObsStore.exportTopicHsPdf === 'function') {
                             window.LTDMinMapObsStore.exportTopicHsPdf(loaded.id);
                         }
-                        closeLibrary();
                         return;
                     }
                     applyTopic(loaded);
@@ -13139,7 +13176,6 @@ const COLS = 24;
                 if (window.LTDMinMapObsStore && typeof window.LTDMinMapObsStore.exportTopicHsPdf === 'function') {
                     window.LTDMinMapObsStore.exportTopicHsPdf(topic.id);
                 }
-                closeLibrary();
                 return;
             }
             applyTopic(topic);
