@@ -12275,6 +12275,19 @@ const COLS = 24;
                 });
             };
         }
+        function togglePublishTopic(id) {
+            if (isStudentMode) return;
+            const idx = savedTopics.findIndex(t => t && t.id === id);
+            if (idx === -1) return;
+            const newStatus = !Boolean(savedTopics[idx].isPublished);
+            if (newStatus) {
+                openPublishScopeModal(id);
+                return;
+            }
+            commitPublishTopic(id, false, savedTopics[idx].publishScope || { mode: 'all' });
+        }
+        window.togglePublishTopic = togglePublishTopic;
+
         let _publinkTopicId = null, _publinkUrl = '', _publinkTimer = null;
         function _plEl(id) { return document.getElementById(id); }
         function _plSet(id, msg, cls) {
