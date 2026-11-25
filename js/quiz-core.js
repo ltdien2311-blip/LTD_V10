@@ -12032,6 +12032,7 @@ const COLS = 24;
                 savedTopics[idx].allowStudentPdf = !!pdfMeta.allowStudentPdf;
                 savedTopics[idx].studentPdfKey = pdfMeta.studentPdfKey || '';
                 savedTopics[idx].studentPdfName = pdfMeta.studentPdfName || '';
+                savedTopics[idx].studentPdfUrl = pdfMeta.studentPdfUrl || '';
                 savedTopics[idx].teacherDocxKey = pdfMeta.teacherDocxKey || '';
                 savedTopics[idx].teacherDocxName = pdfMeta.teacherDocxName || '';
             }
@@ -12112,6 +12113,7 @@ const COLS = 24;
                 allowStudentPdf: Boolean(topic.allowStudentPdf),
                 studentPdfKey: topic.studentPdfKey || '',
                 studentPdfName: topic.studentPdfName || '',
+                studentPdfUrl: topic.studentPdfUrl || '',
                 teacherDocxKey: topic.teacherDocxKey || '',
                 teacherDocxName: topic.teacherDocxName || '',
                 uploading: false
@@ -12167,9 +12169,10 @@ const COLS = 24;
             const pillsEl = ov.querySelector('#ps-file-pills');
             const renderPills = () => {
                 let html = '';
-                if (pdfState.studentPdfKey) {
+                if (pdfState.studentPdfKey || pdfState.studentPdfUrl) {
+                    const directBadge = pdfState.studentPdfUrl ? ' <span style="color:#047857;font-weight:700">(Link tải thẳng Drive)</span>' : '';
                     html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border-radius:8px;background:#ecfdf5;border:1px solid #6ee7b7;font-size:12.5px;font-weight:800;color:#065f46">` +
-                        `<span>📄 PDF cho HS: ${_escHtml(pdfState.studentPdfName || 'De_thi.pdf')}</span>` +
+                        `<span>📄 PDF cho HS: ${_escHtml(pdfState.studentPdfName || 'De_thi.pdf')}${directBadge}</span>` +
                         `<button type="button" id="ps-del-pdf" style="border:none;background:#fee2e2;color:#dc2626;border-radius:6px;padding:2px 8px;font-weight:800;cursor:pointer">Xóa</button></div>`;
                 }
                 if (pdfState.teacherDocxKey) {
@@ -12182,9 +12185,23 @@ const COLS = 24;
                 }
                 pillsEl.innerHTML = html;
                 const dPdf = pillsEl.querySelector('#ps-del-pdf');
-                if (dPdf) dPdf.onclick = () => { pdfState.studentPdfKey = ''; pdfState.studentPdfName = ''; renderPills(); };
+                if (dPdf) dPdf.onclick = () => {
+                    const oldK = pdfState.studentPdfKey;
+                    pdfState.studentPdfKey = ''; pdfState.studentPdfName = ''; pdfState.studentPdfUrl = '';
+                    if (oldK && window.GasBridge && typeof window.GasBridge.deleteFileFromDrive === 'function') {
+                        window.GasBridge.deleteFileFromDrive(oldK).catch(() => {});
+                    }
+                    renderPills();
+                };
                 const dDocx = pillsEl.querySelector('#ps-del-docx');
-                if (dDocx) dDocx.onclick = () => { pdfState.teacherDocxKey = ''; pdfState.teacherDocxName = ''; renderPills(); };
+                if (dDocx) dDocx.onclick = () => {
+                    const oldK = pdfState.teacherDocxKey;
+                    pdfState.teacherDocxKey = ''; pdfState.teacherDocxName = '';
+                    if (oldK && window.GasBridge && typeof window.GasBridge.deleteFileFromDrive === 'function') {
+                        window.GasBridge.deleteFileFromDrive(oldK).catch(() => {});
+                    }
+                    renderPills();
+                };
                 const dlDocx = pillsEl.querySelector('#ps-dl-docx');
                 if (dlDocx) dlDocx.onclick = async () => {
                     if (!window.GasBridge || typeof window.GasBridge.loadFileFromDrive !== 'function') return;
@@ -12221,20 +12238,21 @@ const COLS = 24;
                     if (cls.pdf) {
                         const url = await readAsDataUrl(cls.pdf);
                         const k = 'pdf_stu_' + topic.id;
-                        const r = await window.GasBridge.saveFileToDrive(k, url);
+                        const r = await window.GasBridge.saveFileToDrive(k, url, { fileName: cls.pdf.name, isPublic: true });
                         if (!r || !r.ok) throw new Error((r && r.error) || 'Lỗi lưu PDF');
                         pdfState.studentPdfKey = k;
-                        pdfState.studentPdfName = cls.pdf.name;
+                        pdfState.studentPdfName = r.filename || cls.pdf.name;
+                        pdfState.studentPdfUrl = r.downloadUrl || r.viewUrl || '';
                         const chk = ov.querySelector('#ps-allow-pdf');
                         if (chk) chk.checked = true;
                     }
                     if (cls.docx) {
                         const url = await readAsDataUrl(cls.docx);
                         const k = 'docx_gv_' + topic.id;
-                        const r = await window.GasBridge.saveFileToDrive(k, url);
+                        const r = await window.GasBridge.saveFileToDrive(k, url, { fileName: cls.docx.name, isPublic: false });
                         if (!r || !r.ok) throw new Error((r && r.error) || 'Lỗi lưu DOCX');
                         pdfState.teacherDocxKey = k;
-                        pdfState.teacherDocxName = cls.docx.name;
+                        pdfState.teacherDocxName = r.filename || cls.docx.name;
                     }
                     statusEl.textContent = '✅ Đã tách & lưu file lên Google Drive thành công!';
                     renderPills();
@@ -12270,6 +12288,7 @@ const COLS = 24;
                     allowStudentPdf: allowPdf,
                     studentPdfKey: pdfState.studentPdfKey,
                     studentPdfName: pdfState.studentPdfName,
+                    studentPdfUrl: pdfState.studentPdfUrl,
                     teacherDocxKey: pdfState.teacherDocxKey,
                     teacherDocxName: pdfState.teacherDocxName
                 });
@@ -13370,7 +13389,17 @@ const COLS = 24;
             let topic = savedTopics.find(t => t && t.id === topicId);
             if (!topic) return null;
             const safeFn = String(topic.studentPdfName || ((topic.subtitle || topic.title || 'De_thi').replace(/[\\/:*?"<>|]/g, '_') + '.pdf'));
-            // Priority 1: Attached teacher PDF on Drive
+            // Priority 1: Direct Google Drive download link (instant CDN, zero GAS bottleneck)
+            if (topic.studentPdfUrl && /^https?:\/\//i.test(String(topic.studentPdfUrl))) {
+                const a = document.createElement('a');
+                a.href = String(topic.studentPdfUrl);
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.download = safeFn;
+                document.body.appendChild(a); a.click(); a.remove();
+                return { ok: true, source: 'drive_direct', url: String(topic.studentPdfUrl), filename: safeFn };
+            }
+            // Priority 2: Attached teacher PDF via GAS DriveApp
             if (topic.studentPdfKey && window.GasBridge && typeof window.GasBridge.loadFileFromDrive === 'function') {
                 try {
                     const r = await window.GasBridge.loadFileFromDrive(topic.studentPdfKey);
@@ -13383,7 +13412,7 @@ const COLS = 24;
                     }
                 } catch (e) {}
             }
-            // Fallback 2: Auto-build A4 PDF from questions (answers & explanations hidden)
+            // Fallback 3: Auto-build A4 PDF from questions (answers & explanations hidden)
             if ((!Array.isArray(topic.questions) || !topic.questions.length) && window.GasBridge && typeof window.GasBridge.ensureTopicLoadedFromDrive === 'function') {
                 const res = await window.GasBridge.ensureTopicLoadedFromDrive(topicId);
                 if (res && res.ok && res.data) topic = res.data;
@@ -13391,6 +13420,18 @@ const COLS = 24;
             if (!Array.isArray(topic.questions) || !topic.questions.length) {
                 showModal('Chưa có dữ liệu đề', 'Đề thi này chưa có câu hỏi hoặc tệp PDF đính kèm.', 'warning');
                 return { ok: false, error: 'empty' };
+            }
+            const hasPrintableContent = topic.questions.some(q => {
+                if (!q) return false;
+                if (String(q.text || q.question || '').trim()) return true;
+                if (q.image || q.img || q.imageUrl) return true;
+                if (Array.isArray(q.options) && q.options.some(o => String(o || '').trim())) return true;
+                if (Array.isArray(q.statements) && q.statements.some(s => String((s && s.text) || s || '').trim())) return true;
+                return false;
+            });
+            if (!hasPrintableContent) {
+                showModal('Chưa có tệp PDF đính kèm', 'Đề thi này dùng tệp đề gốc nhưng giáo viên chưa đính kèm tệp PDF.', 'warning');
+                return { ok: false, error: 'no_printable_content' };
             }
             if (!window.modernScreenshot || typeof window.modernScreenshot.domToCanvas !== 'function' || !window.LTDMinMapObsStore || typeof window.LTDMinMapObsStore.buildA4PdfBytesFromJpegs !== 'function') {
                 showModal('Chưa sẵn sàng', 'Trình tạo PDF A4 chưa nạp xong, hãy thử tải lại trang.', 'warning');

@@ -4050,6 +4050,7 @@
                     allowStudentPdf: !!t.allowStudentPdf,
                     studentPdfKey: t.studentPdfKey ? String(t.studentPdfKey) : '',
                     studentPdfName: t.studentPdfName ? String(t.studentPdfName) : '',
+                    studentPdfUrl: t.studentPdfUrl ? String(t.studentPdfUrl) : '',
                     videoLectures: Array.isArray(t.videoLectures) ? t.videoLectures : [],
                     updatedAt: Number(t.updatedAt || Date.now()),
                     order: typeof t.order === 'number' ? t.order : undefined
@@ -4235,18 +4236,41 @@
         loadTopicFromDrive: loadTopicFromDrive,
         saveImageToDrive: saveImageToDrive,
         loadImageFromDrive: loadImageFromDrive,
-        saveFileToDrive: function (fileId, dataUrl) {
+        saveFileToDrive: function (fileId, dataUrl, opts) {
             if (!fileId || !dataUrl) return Promise.resolve({ ok: false, error: 'Thiếu fileId hoặc dataUrl.' });
-            return saveTopicToDrive({ id: String(fileId), isAttachment: true, dataUrl: String(dataUrl), updatedAt: Date.now() });
+            var keyStr = String(fileId);
+            var isPub = (opts && typeof opts.isPublic === 'boolean') ? opts.isPublic : (keyStr.indexOf('pdf_stu_') === 0);
+            var fName = (opts && opts.fileName) ? String(opts.fileName) : '';
+            return postToPrimaryGas({
+                action: 'saveAttachmentToDrive',
+                fileKey: keyStr,
+                fileName: fName,
+                dataUrl: String(dataUrl),
+                isPublic: isPub
+            }, 1);
         },
         loadFileFromDrive: function (fileId) {
             if (!fileId) return Promise.resolve({ ok: false, error: 'Thiếu fileId.' });
-            return loadTopicFromDrive(String(fileId)).then(function (res) {
+            var keyStr = String(fileId);
+            return getFromPrimaryGas('getAttachmentFromDrive', { fileKey: keyStr }).then(function (res) {
                 if (res && res.ok && res.data && res.data.dataUrl) {
-                    return { ok: true, dataUrl: res.data.dataUrl };
+                    return { ok: true, dataUrl: res.data.dataUrl, filename: res.data.filename || '' };
                 }
-                return { ok: false, error: (res && res.error) || 'Không tìm thấy tệp trên Drive.' };
+                // Tương thích ngược các tệp cũ lưu qua topic_*.json
+                return loadTopicFromDrive(keyStr).then(function (legacyRes) {
+                    if (legacyRes && legacyRes.ok && legacyRes.data && legacyRes.data.dataUrl) {
+                        return { ok: true, dataUrl: legacyRes.data.dataUrl };
+                    }
+                    return { ok: false, error: (res && res.error) || (legacyRes && legacyRes.error) || 'Không tìm thấy tệp trên Drive.' };
+                });
             });
+        },
+        deleteFileFromDrive: function (fileId) {
+            if (!fileId) return Promise.resolve({ ok: false, error: 'Thiếu fileId.' });
+            return postToPrimaryGas({
+                action: 'deleteAttachmentFromDrive',
+                fileKey: String(fileId)
+            }, 1);
         },
         enqueueTopicSync: enqueueTopicSync,
         getTopicOutboxCount: getTopicOutboxCount,
