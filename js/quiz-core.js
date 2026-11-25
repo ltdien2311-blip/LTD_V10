@@ -12775,21 +12775,47 @@ const COLS = 24;
             renderLibraryList();
         }
 
+        function collectDescendantFolderIds(rootId) {
+            const ids = [rootId];
+            for (let i = 0; i < ids.length; i++) {
+                const cur = ids[i];
+                libraryFolders.forEach(x => {
+                    if (x && x.parentId === cur && !ids.includes(x.id)) ids.push(x.id);
+                });
+            }
+            return ids;
+        }
+
         function deleteLibFolder(id) {
             const f = getFolderById(id);
             if (!f || isStudentMode) return;
-            const st = folderDeepStats(id);
-            if (st.folders > 0 || st.topics > 0) {
-                showModal('Chưa thể xóa thư mục',
-                    `Thư mục "${f.name}" còn ${st.folders} thư mục con và ${st.topics} đề thi.\nHãy chuyển các đề thi sang nơi khác (nút "📁 Chuyển") hoặc xóa chúng trước, rồi xóa thư mục.`,
-                    'info');
-                return;
+            const delFolderIds = collectDescendantFolderIds(id);
+            const delTopics = savedTopics.filter(t => t && delFolderIds.includes(t.folderId));
+            if (delFolderIds.length > 1 || delTopics.length > 0) {
+                const msg = `Thư mục "${f.name}" đang chứa ${delFolderIds.length - 1} thư mục con và ${delTopics.length} đề thi.\nXác nhận xóa toàn bộ thư mục này (các bài đã xuất bản bên Học sinh cũng sẽ biến mất ngay)?`;
+                if (typeof window.confirm === 'function' && !window.confirm(msg)) return;
             }
-            libraryFolders = libraryFolders.filter(x => x.id !== id);
-            if (!deletedFolderIds.includes(id)) deletedFolderIds.push(id);
+            const delTopicIdSet = new Set(delTopics.map(t => t.id));
+            delTopics.forEach(t => {
+                if (!deletedTopicIds.includes(t.id)) deletedTopicIds.push(t.id);
+                markTopicLocallyModified(t.id);
+            });
+            savedTopics = savedTopics.filter(t => !delTopicIdSet.has(t.id));
+            if (Array.isArray(window.__PRELOADED_LIBRARY__)) {
+                window.__PRELOADED_LIBRARY__ = window.__PRELOADED_LIBRARY__.filter(t => !delTopicIdSet.has(t.id));
+            }
+            delFolderIds.forEach(fid => {
+                if (!deletedFolderIds.includes(fid)) deletedFolderIds.push(fid);
+            });
+            libraryFolders = libraryFolders.filter(x => !delFolderIds.includes(x.id));
             saveFolders();
-            if (libCurrentFolderId === id) libCurrentFolderId = f.parentId || null;
+            saveToStorage();
+            if (delTopicIdSet.has(currentTopicId)) clearToBlankState();
+            if (delFolderIds.includes(libCurrentFolderId)) libCurrentFolderId = f.parentId || null;
             renderLibraryList();
+            if (window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled() && typeof window.GasBridge.syncAfterDelete === 'function') {
+                Promise.resolve(window.GasBridge.syncAfterDelete()).catch(() => {});
+            }
         }
 
         // ---- Chuyển đề thi sang thư mục khác ----
@@ -13493,6 +13519,7 @@ const COLS = 24;
             if (!deletedTopicIds.includes(id)) {
                 deletedTopicIds.push(id);
             }
+            markTopicLocallyModified(id);
             savedTopics = savedTopics.filter(t => t.id !== id);
 
             if (Array.isArray(window.__PRELOADED_LIBRARY__)) {
@@ -13505,7 +13532,19 @@ const COLS = 24;
                 clearToBlankState();
             }
             renderLibraryList();
-            showModal('Đã xóa', `Chủ đề đã được xóa khỏi Thư viện (Còn lại ${savedTopics.length} chủ đề).`, 'info');
+            if (window.GasBridge && window.GasBridge.isGasEnabled && window.GasBridge.isGasEnabled() && typeof window.GasBridge.syncAfterDelete === 'function') {
+                Promise.resolve(window.GasBridge.syncAfterDelete()).then(res => {
+                    if (res && res.ok) {
+                        showModal('Đã xóa & Đồng bộ Học sinh', `Chủ đề đã bị xóa khỏi Thư viện Giáo viên và Học sinh (Còn lại ${savedTopics.length} chủ đề).`, 'info');
+                    } else {
+                        showModal('Đã xóa trên máy', `Đã xóa khỏi máy (Còn lại ${savedTopics.length} chủ đề), nhưng chưa đồng bộ được Drive: ${(res && res.error) || 'Lỗi mạng'}.`, 'warning');
+                    }
+                }).catch(() => {
+                    showModal('Đã xóa', `Chủ đề đã được xóa khỏi Thư viện (Còn lại ${savedTopics.length} chủ đề).`, 'info');
+                });
+            } else {
+                showModal('Đã xóa', `Chủ đề đã được xóa khỏi Thư viện (Còn lại ${savedTopics.length} chủ đề).`, 'info');
+            }
         }
 
         // [CODE11] Chuẩn hóa: đáp án luôn mang nhãn A, B, C, D theo thứ tự (kể cả đề cũ lưu bằng ký tự mật mã)

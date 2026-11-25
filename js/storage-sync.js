@@ -2924,6 +2924,11 @@
         },
         quickPushDriveMain: function () {
             if (!window.GasBridge || !window.GasBridge.pushLibraryToDrive) return Promise.resolve();
+            if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+                if (!window.confirm('Đẩy Drive (Ghi đè 1-1):\nToàn bộ Thư viện, danh sách bài Học sinh xuất bản và đề trên Google Drive sẽ bị ghi đè khớp 100% với máy hiện tại (bài đã xóa trên máy cũng bị dọn khỏi Drive).\nTiếp tục?')) {
+                    return Promise.resolve({ ok: false, cancelled: true });
+                }
+            }
             var st = $('main-drive-status');
             if (st) { st.classList.remove('hidden'); st.style.color = '#1d4ed8'; st.textContent = '⏳ Đang đẩy lên Drive...'; }
             return window.GasBridge.pushLibraryToDrive(function (prog) {
@@ -2940,6 +2945,11 @@
         },
         quickPullDriveMain: function () {
             if (!window.GasBridge || !window.GasBridge.pullLibraryFromDrive) return Promise.resolve();
+            if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+                if (!window.confirm('Kéo Drive (Ghi đè 1-1 về máy):\nToàn bộ đề thi và thư mục hiện có trên trình duyệt máy này sẽ bị xóa sạch và thay thế 100% bằng bản trên Google Drive.\nTiếp tục?')) {
+                    return Promise.resolve({ ok: false, cancelled: true });
+                }
+            }
             var st = $('main-drive-status');
             if (st) { st.classList.remove('hidden'); st.style.color = '#1d4ed8'; st.textContent = '⏳ Đang kéo từ Drive...'; }
             return window.GasBridge.pullLibraryFromDrive(function (prog) {
@@ -2956,6 +2966,11 @@
         },
         pushLibraryToDriveGas: function () {
             if (!window.GasBridge || !window.GasBridge.pushLibraryToDrive) return Promise.resolve();
+            if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+                if (!window.confirm('Đẩy Drive (Ghi đè 1-1):\nToàn bộ Thư viện, danh sách bài Học sinh xuất bản và đề trên Google Drive sẽ bị ghi đè khớp 100% với máy hiện tại (bài đã xóa trên máy cũng bị dọn khỏi Drive).\nTiếp tục?')) {
+                    return Promise.resolve({ ok: false, cancelled: true });
+                }
+            }
             var box = $('gas-test-status');
             if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-weight:800;font-size:13px">⏳ Đang chuẩn bị đẩy Thư viện &amp; MinMap lên Google Drive (GAS #1)...</div>';
             return window.GasBridge.pushLibraryToDrive(function (prog) {
@@ -2972,6 +2987,11 @@
         },
         pullLibraryFromDriveGas: function () {
             if (!window.GasBridge || !window.GasBridge.pullLibraryFromDrive) return Promise.resolve();
+            if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+                if (!window.confirm('Kéo Drive (Ghi đè 1-1 về máy):\nToàn bộ đề thi và thư mục hiện có trên trình duyệt máy này sẽ bị xóa sạch và thay thế 100% bằng bản trên Google Drive.\nTiếp tục?')) {
+                    return Promise.resolve({ ok: false, cancelled: true });
+                }
+            }
             var box = $('gas-test-status');
             if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-weight:800;font-size:13px">⏳ Đang tải Mục lục Thư viện từ Google Drive (GAS #1)...</div>';
             return window.GasBridge.pullLibraryFromDrive(function (prog) {
@@ -3865,8 +3885,21 @@
             }
 
             return chain.then(function () {
-                saveTopicOutbox([]);
-                return { ok: true, topicCount: total, batches: batches, imageCount: imgTotal };
+                var pubPayload = buildPubIndexPayload(topics, folders);
+                var keepIds = topics.map(function (t) { return t && t.id ? String(t.id) : ''; }).filter(Boolean);
+                return savePubIndexToDrive(pubPayload).then(function () {
+                    return postToPrimaryGas({ action: 'pruneDriveTopics', keepTopicIds: keepIds }, 1)
+                        .catch(function () { return { ok: false, prunedCount: 0 }; });
+                }).then(function (pruneRes) {
+                    saveTopicOutbox([]);
+                    return {
+                        ok: true,
+                        topicCount: total,
+                        batches: batches,
+                        imageCount: imgTotal,
+                        prunedCount: (pruneRes && pruneRes.prunedCount) || 0
+                    };
+                });
             });
         });
     }
@@ -3924,67 +3957,23 @@
                 return { ok: false, error: (res && res.error) || 'Chưa có Mục lục LIB_INDEX_V2 trên Drive.' };
             }
             var idxData = res.data;
-            var folderIdRemap = {};
-            if (Array.isArray(idxData.folders) && idxData.folders.length) {
-                var curFolders = getGlobalVarSafe('libraryFolders', null);
-                var normF = function (s) { return String(s || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim(); };
-                if (Array.isArray(curFolders)) {
-                    idxData.folders.forEach(function (f) {
-                        if (!f || !f.id) return;
-                        if (curFolders.some(function (x) { return x && x.id === f.id; })) return;
-                        var pid = f.parentId && folderIdRemap[f.parentId] ? folderIdRemap[f.parentId] : (f.parentId || '');
-                        var dup = curFolders.find(function (x) {
-                            if (!x || !x.id) return false;
-                            return normF(x.subject || '') === normF(f.subject || '') &&
-                                String(x.parentId || '') === String(pid) &&
-                                normF(x.name || '') === normF(f.name || '');
-                        });
-                        if (dup) {
-                            folderIdRemap[f.id] = dup.id;
-                        } else {
-                            if (f.parentId && folderIdRemap[f.parentId]) f.parentId = folderIdRemap[f.parentId];
-                            curFolders.push(f);
-                        }
-                    });
-                    try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(curFolders)); } catch (e) { }
-                } else {
-                    setGlobalVarSafe('libraryFolders', idxData.folders.slice());
-                }
-            }
-            if (Array.isArray(idxData.deletedTopicIds) && idxData.deletedTopicIds.length) {
-                var curDel = getGlobalVarSafe('deletedTopicIds', null);
-                if (Array.isArray(curDel)) {
-                    idxData.deletedTopicIds.forEach(function (d) { if (curDel.indexOf(d) === -1) curDel.push(d); });
-                } else {
-                    setGlobalVarSafe('deletedTopicIds', idxData.deletedTopicIds.slice());
-                }
-            }
-
+            var remoteFolders = Array.isArray(idxData.folders) ? idxData.folders.slice() : [];
+            var remoteDeleted = Array.isArray(idxData.deletedTopicIds) ? idxData.deletedTopicIds.slice() : [];
             var remoteList = Array.isArray(idxData.topics) ? idxData.topics : [];
-            var localTopics = getGlobalVarSafe('savedTopics', []);
-            var localMap = {};
-            (Array.isArray(localTopics) ? localTopics : []).forEach(function (t) { if (t && t.id) localMap[String(t.id)] = t; });
 
-            var toPull = remoteList.filter(function (rt) {
-                if (!rt || !rt.id) return false;
-                var lt = localMap[String(rt.id)];
-                if (!lt) return true;
-                return Number(rt.updatedAt || 0) > Number(lt.updatedAt || 0);
-            });
-
-            var total = toPull.length;
+            var total = remoteList.length;
             var done = 0;
             var pulledCount = 0;
+            var newTopics = [];
             var chain = Promise.resolve();
 
             for (var start = 0; start < total; start += TOPIC_BATCH_SIZE) {
                 (function (slice) {
                     chain = chain.then(function () {
-                        return Promise.all(slice.map(function (rt) { return loadTopicFromDrive(rt.id); })).then(function (tResList) {
+                        return Promise.all(slice.map(function (rt) { return rt && rt.id ? loadTopicFromDrive(rt.id) : Promise.resolve(null); })).then(function (tResList) {
                             tResList.forEach(function (tr) {
                                 if (tr && tr.ok && tr.data && tr.data.id) {
-                                    if (tr.data.folderId && folderIdRemap[tr.data.folderId]) tr.data.folderId = folderIdRemap[tr.data.folderId];
-                                    upsertLocalTopicSafe(tr.data);
+                                    newTopics.push(tr.data);
                                     pulledCount++;
                                 }
                             });
@@ -3994,11 +3983,39 @@
                             }
                         });
                     });
-                })(toPull.slice(start, start + TOPIC_BATCH_SIZE));
+                })(remoteList.slice(start, start + TOPIC_BATCH_SIZE));
             }
 
             return chain.then(function () {
-                try { if (typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.dedupeFolders === 'function') window.LTDLibBridge.dedupeFolders(); } catch (e) { }
+                // Ghi đè 1-1 thư mục, danh sách đã xóa và toàn bộ đề thi trên máy bằng bản Drive
+                var curFolders = getGlobalVarSafe('libraryFolders', null);
+                if (Array.isArray(curFolders)) {
+                    curFolders.length = 0;
+                    remoteFolders.forEach(function (f) { curFolders.push(f); });
+                } else {
+                    setGlobalVarSafe('libraryFolders', remoteFolders);
+                }
+                try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(remoteFolders)); } catch (e) { }
+
+                var curDel = getGlobalVarSafe('deletedTopicIds', null);
+                if (Array.isArray(curDel)) {
+                    curDel.length = 0;
+                    remoteDeleted.forEach(function (d) { curDel.push(d); });
+                } else {
+                    setGlobalVarSafe('deletedTopicIds', remoteDeleted);
+                }
+
+                var curTopics = getGlobalVarSafe('savedTopics', null);
+                if (Array.isArray(curTopics)) {
+                    curTopics.length = 0;
+                    newTopics.forEach(function (t) { curTopics.push(t); });
+                } else {
+                    setGlobalVarSafe('savedTopics', newTopics);
+                }
+                if (typeof window !== 'undefined') {
+                    window.__PRELOADED_LIBRARY__ = [];
+                }
+                saveTopicOutbox([]);
                 try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) { }
                 try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) { }
                 return { ok: true, pulledCount: pulledCount, totalInIndex: remoteList.length };
@@ -4060,6 +4077,33 @@
         };
     }
 
+    function syncAfterDelete() {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        var topics = getGlobalVarSafe('savedTopics', []);
+        var folders = getGlobalVarSafe('libraryFolders', []);
+        if ((!folders || !folders.length) && typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.getFolders === 'function') {
+            folders = window.LTDLibBridge.getFolders();
+        }
+        var deletedIds = getGlobalVarSafe('deletedTopicIds', []);
+        if (!Array.isArray(topics)) topics = [];
+        if (!Array.isArray(folders)) folders = [];
+        var libPayload = buildLightLibIndex(topics, folders, deletedIds);
+        var pubPayload = buildPubIndexPayload(topics, folders);
+        return Promise.all([
+            saveLibIndexToDrive(libPayload),
+            savePubIndexToDrive(pubPayload)
+        ]).then(function (results) {
+            var rLib = results[0] || {};
+            var rPub = results[1] || {};
+            return {
+                ok: !!(rLib.ok && rPub.ok),
+                libOk: !!rLib.ok,
+                pubOk: !!rPub.ok,
+                error: (!rPub.ok && rPub.error) || (!rLib.ok && rLib.error) || ''
+            };
+        });
+    }
+
     function publishTopicToDrive(topicObj) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         var topics = getGlobalVarSafe('savedTopics', []);
@@ -4087,24 +4131,9 @@
             var folderRemap = {};
             var normF = function (s) { return String(s || '').normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim(); };
             if (Array.isArray(data.folders)) {
-                if (Array.isArray(curFolders)) {
-                    data.folders.forEach(function (f) {
-                        if (!f || !f.id) return;
-                        if (curFolders.some(function (x) { return x && x.id === f.id; })) return;
-                        var pid = (f.parentId && folderRemap[f.parentId]) ? folderRemap[f.parentId] : (f.parentId || '');
-                        var dup = curFolders.find(function (x) {
-                            return x && x.id && normF(x.subject || '') === normF(f.subject || '') && String(x.parentId || '') === String(pid) && normF(x.name || '') === normF(f.name || '');
-                        });
-                        if (dup) folderRemap[f.id] = dup.id;
-                        else {
-                            if (f.parentId && folderRemap[f.parentId]) f.parentId = folderRemap[f.parentId];
-                            curFolders.push(f);
-                        }
-                    });
-                    try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(curFolders)); } catch (e) {}
-                } else {
-                    setGlobalVarSafe('libraryFolders', data.folders.slice());
-                }
+                // Phía Học sinh: thay thế sạch thư mục theo PUB_INDEX.json để thư mục đã xóa bên GV biến mất luôn
+                setGlobalVarSafe('libraryFolders', data.folders.slice());
+                try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(data.folders)); } catch (e) {}
             }
             var remoteTopics = Array.isArray(data.topics) ? data.topics : [];
             var remoteIds = {};
@@ -4125,6 +4154,7 @@
                     existing.allowStudentPdf = !!rt.allowStudentPdf;
                     existing.studentPdfKey = rt.studentPdfKey || '';
                     existing.studentPdfName = rt.studentPdfName || '';
+                    existing.studentPdfUrl = rt.studentPdfUrl || '';
                     existing._remoteUpdatedAt = Number(rt.updatedAt || 0);
                     upsertLocalTopicSafe(existing);
                 } else {
@@ -4279,6 +4309,7 @@
         pullLibraryFromDrive: pullLibraryFromDrive,
         savePubIndexToDrive: savePubIndexToDrive,
         loadPubIndexFromDrive: loadPubIndexFromDrive,
+        syncAfterDelete: syncAfterDelete,
         publishTopicToDrive: publishTopicToDrive,
         pullPublishedForStudent: pullPublishedForStudent,
         ensureTopicLoadedFromDrive: ensureTopicLoadedFromDrive,
