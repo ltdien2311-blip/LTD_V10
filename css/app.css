@@ -2074,17 +2074,24 @@ details.obs-acc.obs-grp-rose[open] > summary { border-bottom-color: rgba(251,113
 /* === [MT-10B] MinMap Slide Layer trong OBS & Khung Quan ly Bo bai giang === */
 .obs-slide-img-layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; z-index: 25; background: #000000; pointer-events: none; }
 .obs-slide-img-layer.hidden { display: none !important; }
-.mm-deck-drawer { position: absolute; right: 16px; top: 52px; z-index: 95; width: 370px; max-width: calc(100vw - 32px); max-height: calc(100vh - 74px); overflow-y: auto; background: rgba(15,23,42,0.98); border: 1px solid #8b5cf6; border-radius: 14px; padding: 12px; box-shadow: 0 18px 42px rgba(0,0,0,0.82); color: #f8fafc; display: flex; flex-direction: column; gap: 9px; }
+.mm-deck-drawer { position: absolute; right: 16px; top: 52px; z-index: 95; width: 500px; max-width: calc(100vw - 32px); max-height: calc(100vh - 68px); overflow-y: auto; background: linear-gradient(165deg, rgba(15,23,42,0.97) 0%, rgba(30,41,59,0.97) 100%); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1.5px solid #6366f1; border-radius: 16px; padding: 14px; box-shadow: 0 22px 54px rgba(2,6,23,0.85), 0 0 0 1px rgba(129,140,248,0.18); color: #f8fafc; display: flex; flex-direction: column; gap: 10px; transition: width 0.2s ease; }
+.mm-deck-drawer.expanded { width: 840px; max-width: 96vw; }
 .mm-deck-drawer.hidden { display: none !important; }
 .mm-deck-row { display: flex; gap: 6px; align-items: center; }
-.mm-deck-sel { flex: 1; min-width: 0; width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #020617; color: #f8fafc; border: 1px solid #334155; border-radius: 7px; padding: 5px 8px; font-size: 12px; font-weight: 700; }
+.mm-deck-sel { flex: 1; min-width: 0; width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #020617; color: #f8fafc; border: 1px solid #475569; border-radius: 8px; padding: 7px 10px; font-size: 12.5px; font-weight: 700; }
 .mm-deck-field > * { min-width: 0; }
-.mm-deck-slides { display: flex; flex-direction: column; gap: 6px; max-height: 230px; overflow-y: auto; }
-.mm-deck-item { display: flex; align-items: center; gap: 8px; background: #1e293b; border: 1px solid #334155; border-radius: 9px; padding: 6px; cursor: grab; }
-.mm-deck-thumb { width: 64px; height: 36px; border-radius: 5px; background: #000; border: 1px solid #475569; object-fit: contain; flex-shrink: 0; }
-.mm-deck-meta { flex: 1; min-width: 0; }
-.mm-deck-title { font-size: 11.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mm-deck-acts { display: flex; gap: 3px; }
+.mm-deck-slides { display: grid; grid-template-columns: 1fr; gap: 8px; max-height: calc(100vh - 280px); min-height: 140px; overflow-y: auto; padding-right: 4px; }
+.mm-deck-drawer.expanded .mm-deck-slides { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mm-deck-item { display: flex; align-items: flex-start; gap: 10px; background: rgba(30,41,59,0.88); border: 1.5px solid #334155; border-radius: 11px; padding: 8px 9px; cursor: pointer; transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease; }
+.mm-deck-item:hover { border-color: #818cf8; background: rgba(51,65,85,0.72); }
+.mm-deck-item.is-editing { border-color: #38bdf8; background: linear-gradient(135deg, rgba(12,74,110,0.62), rgba(30,58,138,0.52)); box-shadow: 0 0 0 2px rgba(56,189,248,0.24); }
+.mm-deck-thumb { width: 76px; height: 44px; border-radius: 7px; background: #020617; border: 1px solid #475569; object-fit: contain; flex-shrink: 0; margin-top: 2px; }
+.mm-deck-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.mm-deck-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mm-deck-num { display: inline-flex; align-items: center; justify-content: center; padding: 1px 7px; border-radius: 999px; background: rgba(99,102,241,0.24); border: 1px solid rgba(129,140,248,0.45); color: #c7d2fe; font-size: 11px; font-weight: 800; }
+.mm-editing-badge { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; background: rgba(14,165,233,0.25); border: 1px solid #38bdf8; color: #7dd3fc; font-size: 10.5px; font-weight: 800; }
+.mm-deck-title { font-size: 12.5px; font-weight: 700; color: #f8fafc; white-space: normal; word-break: break-word; overflow: visible; line-height: 1.38; }
+.mm-deck-acts { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
 .mm-deck-dest { background: #0b1220; border: 1px solid #f59e0b; border-radius: 10px; padding: 9px; display: flex; flex-direction: column; gap: 6px; }
 .mm-deck-dest-lbl { font-size: 10.5px; font-weight: 800; color: #fbbf24; text-transform: uppercase; }
 .mm-deck-field { display: grid; grid-template-columns: 68px 1fr; align-items: center; gap: 6px; font-size: 11.5px; color: #cbd5e1; }

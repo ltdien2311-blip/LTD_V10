@@ -4077,6 +4077,170 @@
         };
     }
 
+    function pushMinMapDraftsToDrive(decksMeta, getSlideDataUrlFn, onProgress) {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        var meta = decksMeta && typeof decksMeta === 'object' ? decksMeta : { activeId: '', decks: [] };
+        var decks = Array.isArray(meta.decks) ? meta.decks : [];
+        var allSlides = [];
+        decks.forEach(function (dk) {
+            if (!dk) return;
+            (Array.isArray(dk.slides) ? dk.slides : []).forEach(function (s) { if (s && s.id) allSlides.push(s); });
+            (Array.isArray(dk.hsSlides) ? dk.hsSlides : []).forEach(function (s) { if (s && s.id) allSlides.push(s); });
+        });
+        var totalImgs = allSlides.length;
+        var doneImgs = 0;
+        var okImgs = 0;
+        var imgChain = Promise.resolve();
+        var IMG_BATCH = 4;
+
+        for (var i = 0; i < totalImgs; i += IMG_BATCH) {
+            (function (slice) {
+                imgChain = imgChain.then(function () {
+                    return Promise.all(slice.map(function (sl) {
+                        return Promise.resolve(typeof getSlideDataUrlFn === 'function' ? getSlideDataUrlFn(sl.id) : '').then(function (url) {
+                            if (!url || String(url).indexOf('data:image/') !== 0) return { ok: false };
+                            return saveImageToDrive(sl.id, url).then(function (r) {
+                                if (r && r.ok) okImgs++;
+                                return r;
+                            }).catch(function () { return { ok: false }; });
+                        });
+                    })).then(function () {
+                        doneImgs += slice.length;
+                        if (typeof onProgress === 'function') {
+                            try { onProgress({ phase: 'images', done: doneImgs, total: totalImgs }); } catch (e) {}
+                        }
+                    });
+                });
+            })(allSlides.slice(i, i + IMG_BATCH));
+        }
+
+        return imgChain.then(function () {
+            var CHUNK = 10;
+            var indexDecks = [];
+            var saveJobs = Promise.resolve();
+
+            decks.forEach(function (dk) {
+                if (!dk || !dk.id) return;
+                var gv = Array.isArray(dk.slides) ? dk.slides : [];
+                var hs = Array.isArray(dk.hsSlides) ? dk.hsSlides : [];
+                var maxLen = Math.max(gv.length, hs.length);
+                var parts = Math.max(1, Math.ceil(maxLen / CHUNK));
+                indexDecks.push({
+                    id: String(dk.id),
+                    name: String(dk.name || 'Bài giảng'),
+                    minMapMarkdown: String(dk.minMapMarkdown || ''),
+                    parts: parts
+                });
+                for (var p = 0; p < parts; p++) {
+                    (function (deckId, partIdx, gvSlice, hsSlice) {
+                        saveJobs = saveJobs.then(function () {
+                            return postToPrimaryGas({
+                                action: 'saveBankData',
+                                keyName: 'MINMAP_DECK_' + deckId + '_P' + partIdx,
+                                title: 'MinMap Draft ' + deckId + ' P' + partIdx,
+                                data: { slides: gvSlice, hsSlides: hsSlice }
+                            }, 1);
+                        });
+                    })(dk.id, p, gv.slice(p * CHUNK, (p + 1) * CHUNK), hs.slice(p * CHUNK, (p + 1) * CHUNK));
+                }
+            });
+
+            return saveJobs.then(function () {
+                return postToPrimaryGas({
+                    action: 'saveBankData',
+                    keyName: 'MINMAP_DRAFTS_INDEX',
+                    title: 'MinMap Drafts Index',
+                    data: { activeId: String(meta.activeId || ''), decks: indexDecks, updatedAt: Date.now() }
+                }, 1);
+            }).then(function () {
+                return { ok: true, deckCount: indexDecks.length, imageCount: okImgs, totalImages: totalImgs };
+            });
+        }).catch(function (err) {
+            return { ok: false, error: (err && err.message) || String(err) };
+        });
+    }
+
+    function pullMinMapDraftsFromDrive(putSlideDataUrlFn, onProgress) {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
+            if (!idxRes || !idxRes.ok || !idxRes.data || !Array.isArray(idxRes.data.decks)) {
+                return { ok: false, error: (idxRes && idxRes.error) || 'Chưa có bộ Bài giảng MinMap nào trên Drive.' };
+            }
+            var idxData = idxRes.data;
+            var outDecks = [];
+            var deckChain = Promise.resolve();
+
+            idxData.decks.forEach(function (dkMeta) {
+                if (!dkMeta || !dkMeta.id) return;
+                var parts = Math.max(1, Number(dkMeta.parts || 1));
+                var deckObj = {
+                    id: String(dkMeta.id),
+                    name: String(dkMeta.name || 'Bài giảng'),
+                    minMapMarkdown: String(dkMeta.minMapMarkdown || ''),
+                    slides: [],
+                    hsSlides: []
+                };
+                for (var p = 0; p < parts; p++) {
+                    (function (dObj, partIdx) {
+                        deckChain = deckChain.then(function () {
+                            return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DECK_' + dObj.id + '_P' + partIdx }).then(function (pRes) {
+                                if (pRes && pRes.ok && pRes.data) {
+                                    if (Array.isArray(pRes.data.slides)) dObj.slides = dObj.slides.concat(pRes.data.slides);
+                                    if (Array.isArray(pRes.data.hsSlides)) dObj.hsSlides = dObj.hsSlides.concat(pRes.data.hsSlides);
+                                }
+                            });
+                        });
+                    })(deckObj, p);
+                }
+                deckChain = deckChain.then(function () { outDecks.push(deckObj); });
+            });
+
+            return deckChain.then(function () {
+                var allIds = [];
+                outDecks.forEach(function (dk) {
+                    dk.slides.forEach(function (s) { if (s && s.id) allIds.push(s.id); });
+                    dk.hsSlides.forEach(function (s) { if (s && s.id) allIds.push(s.id); });
+                });
+                var total = allIds.length;
+                var done = 0;
+                var loadedImgs = 0;
+                var imgChain = Promise.resolve();
+                var IMG_BATCH = 4;
+
+                for (var i = 0; i < total; i += IMG_BATCH) {
+                    (function (slice) {
+                        imgChain = imgChain.then(function () {
+                            return Promise.all(slice.map(function (sid) {
+                                return loadImageFromDrive(sid).then(function (ir) {
+                                    if (ir && ir.ok && ir.dataUrl && typeof putSlideDataUrlFn === 'function') {
+                                        loadedImgs++;
+                                        return Promise.resolve(putSlideDataUrlFn(sid, ir.dataUrl));
+                                    }
+                                }).catch(function () {});
+                            })).then(function () {
+                                done += slice.length;
+                                if (typeof onProgress === 'function') {
+                                    try { onProgress({ phase: 'images', done: done, total: total }); } catch (e) {}
+                                }
+                            });
+                        });
+                    })(allIds.slice(i, i + IMG_BATCH));
+                }
+
+                return imgChain.then(function () {
+                    return {
+                        ok: true,
+                        data: { activeId: idxData.activeId || (outDecks[0] && outDecks[0].id) || '', decks: outDecks },
+                        deckCount: outDecks.length,
+                        imageCount: loadedImgs
+                    };
+                });
+            });
+        }).catch(function (err) {
+            return { ok: false, error: (err && err.message) || String(err) };
+        });
+    }
+
     function syncAfterDelete() {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         var topics = getGlobalVarSafe('savedTopics', []);
@@ -4309,6 +4473,8 @@
         pullLibraryFromDrive: pullLibraryFromDrive,
         savePubIndexToDrive: savePubIndexToDrive,
         loadPubIndexFromDrive: loadPubIndexFromDrive,
+        pushMinMapDraftsToDrive: pushMinMapDraftsToDrive,
+        pullMinMapDraftsFromDrive: pullMinMapDraftsFromDrive,
         syncAfterDelete: syncAfterDelete,
         publishTopicToDrive: publishTopicToDrive,
         pullPublishedForStudent: pullPublishedForStudent,

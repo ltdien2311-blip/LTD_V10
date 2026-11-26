@@ -842,6 +842,7 @@
             '    <strong style="font-size:12.5px;color:#c4b5fd;">📚 Quản lý Bài giảng</strong>',
             '    <div style="display:flex;gap:4px;">',
             '      <button type="button" class="vp-btn-sm" id="mm-deck-new">+ Bài mới</button>',
+            '      <button type="button" class="vp-btn-sm" id="mm-deck-expand" title="Mở rộng / Thu gọn danh sách 2 cột">⤢</button>',
             '      <button type="button" class="vp-btn-sm" id="mm-deck-rename" title="Đổi tên bộ">✎</button>',
             '      <button type="button" class="vp-btn-sm" id="mm-deck-del" title="Xóa bộ">🗑</button>',
             '      <button type="button" class="vp-btn-sm" id="mm-deck-close" title="Đóng">✕</button>',
@@ -860,6 +861,11 @@
             '    <button type="button" class="vp-btn-png compact" id="mm-export-hs-pdf" style="flex:1;justify-content:center;background:#059669;border-color:#34d399;">📥 Xuất PDF (A4)</button>',
             '    <button type="button" class="vp-btn-png compact" id="mm-export-hs-zip" style="flex:1;justify-content:center;background:#0284c7;border-color:#38bdf8;">📦 Xuất ZIP (.png)</button>',
             '  </div>',
+            '  <div style="display:flex;gap:6px;">',
+            '    <button type="button" class="vp-btn-png compact" id="mm-deck-push-drive" style="flex:1;justify-content:center;background:#0369a1;border-color:#38bdf8;" title="Lưu toàn bộ Bài giảng đang soạn dở (ảnh + Markdown + thiết lập) lên Drive">☁️ Đẩy lên Drive</button>',
+            '    <button type="button" class="vp-btn-png compact" id="mm-deck-pull-drive" style="flex:1;justify-content:center;background:#4338ca;border-color:#818cf8;" title="Kéo bộ Bài giảng đang soạn dở từ Drive về máy này để soạn tiếp">☁️ Kéo từ Drive</button>',
+            '  </div>',
+            '  <div id="mm-deck-sync-status" style="font-size:11.5px;font-weight:700;color:#93c5fd;min-height:0;"></div>',
             '  <button type="button" class="vp-btn-png compact" id="mm-push-lib-btn" style="width:100%;justify-content:center;background:#d97706;border-color:#fbbf24;">📤 Đẩy vào Thư viện</button>',
             '</div>',
             '<div id="mm-push-backdrop" class="mm-push-backdrop hidden">',
@@ -1614,13 +1620,19 @@
                 } else {
                     listEl.innerHTML = arr.map(function (sl, i) {
                         var src = _memSlideMap[sl.id] || '';
-                        return '<div class="mm-deck-item" draggable="true" data-sidx="' + i + '" title="' + (sl.markdown ? 'Bấm vào trang này để nạp lại Markdown lên Cột 1' : '') + '" style="cursor:pointer">' +
+                        var isEd = (i === _editingSlideIdx);
+                        var numLabel = String(i + 1).padStart(2, '0');
+                        var badgeHtml = isEd ? '<span class="mm-editing-badge">✏️ Đang sửa</span>' : '';
+                        return '<div class="mm-deck-item' + (isEd ? ' is-editing' : '') + '" draggable="true" data-sidx="' + i + '" title="Bấm vào để nạp lại 100% thiết lập & Markdown lên Cột 1">' +
                             '<img class="mm-deck-thumb" data-sid="' + escapeHtml(sl.id) + '" src="' + src + '" alt="slide">' +
-                            '<div class="mm-deck-meta"><div class="mm-deck-title">' + escapeHtml(String(i + 1).padStart(2, '0') + '. ' + (sl.title || 'Trang')) + '</div></div>' +
+                            '<div class="mm-deck-meta">' +
+                            '<div class="mm-deck-head"><span class="mm-deck-num">#' + numLabel + '</span>' + badgeHtml + '</div>' +
+                            '<div class="mm-deck-title">' + escapeHtml(sl.title || 'Trang') + '</div>' +
+                            '</div>' +
                             '<div class="mm-deck-acts">' +
-                            '<button type="button" class="vp-btn-sm" data-act="up" data-idx="' + i + '">▲</button>' +
-                            '<button type="button" class="vp-btn-sm" data-act="dn" data-idx="' + i + '">▼</button>' +
-                            '<button type="button" class="vp-btn-sm" data-act="del" data-idx="' + i + '">🗑</button>' +
+                            '<button type="button" class="vp-btn-sm" data-act="up" data-idx="' + i + '" title="Lên">▲</button>' +
+                            '<button type="button" class="vp-btn-sm" data-act="dn" data-idx="' + i + '" title="Xuống">▼</button>' +
+                            '<button type="button" class="vp-btn-sm" data-act="del" data-idx="' + i + '" title="Xóa">🗑</button>' +
                             '</div></div>';
                     }).join('');
                     arr.forEach(function (sl) {
@@ -2154,10 +2166,69 @@
             dr.classList.toggle('hidden');
             if (!dr.classList.contains('hidden')) renderDeckDrawer();
         });
-        $('#mm-deck-close').addEventListener('click', function () { $('#mm-deck-drawer').classList.add('hidden'); });
+        $('#mm-deck-close').addEventListener('click', function () {
+            var dr = $('#mm-deck-drawer'); if (dr) dr.classList.add('hidden');
+        });
+        if ($('#mm-deck-expand')) {
+            $('#mm-deck-expand').addEventListener('click', function () {
+                var dr = $('#mm-deck-drawer');
+                if (!dr) return;
+                dr.classList.toggle('expanded');
+                this.textContent = dr.classList.contains('expanded') ? '⤡' : '⤢';
+            });
+        }
         $('#mm-deck-select').addEventListener('change', function (e) { _deckState.activeId = e.target.value; renderDeckDrawer(); });
         $('#mm-tab-gv').addEventListener('click', function () { _deckState.viewTab = 'gv'; renderDeckDrawer(); });
         $('#mm-tab-hs').addEventListener('click', function () { _deckState.viewTab = 'hs'; renderDeckDrawer(); });
+        if ($('#mm-deck-push-drive')) {
+            $('#mm-deck-push-drive').addEventListener('click', function () {
+                if (!global.GasBridge || !global.GasBridge.isGasEnabled || !global.GasBridge.isGasEnabled() || typeof global.GasBridge.pushMinMapDraftsToDrive !== 'function') {
+                    showToast('Cần kết nối GAS #1 để đẩy lên Drive!', 'error');
+                    return;
+                }
+                if (typeof global.confirm === 'function' && !global.confirm('Đẩy bộ Bài giảng MinMap (ảnh + Markdown + thiết lập) lên Google Drive để soạn tiếp trên máy khác?')) return;
+                var stEl = $('#mm-deck-sync-status');
+                if (stEl) { stEl.style.color = '#93c5fd'; stEl.textContent = '⏳ Đang đẩy ảnh & thiết lập MinMap lên Drive...'; }
+                var meta = loadDecksMeta();
+                global.GasBridge.pushMinMapDraftsToDrive(meta, getSlideDataUrl, function (p) {
+                    if (stEl && p) stEl.textContent = '⏳ Đang đẩy ảnh: ' + (p.done || 0) + '/' + (p.total || 0) + '...';
+                }).then(function (r) {
+                    if (r && r.ok) {
+                        if (stEl) { stEl.style.color = '#6ee7b7'; stEl.textContent = '✅ Đã đẩy ' + (r.deckCount || 0) + ' bộ & ' + (r.imageCount || 0) + ' ảnh lên Drive!'; }
+                        showToast('Đã đẩy bộ Bài giảng MinMap lên Drive!', 'success');
+                    } else {
+                        if (stEl) { stEl.style.color = '#fca5a5'; stEl.textContent = '⚠️ ' + ((r && r.error) || 'Lỗi đẩy Drive'); }
+                    }
+                });
+            });
+        }
+        if ($('#mm-deck-pull-drive')) {
+            $('#mm-deck-pull-drive').addEventListener('click', function () {
+                if (!global.GasBridge || !global.GasBridge.isGasEnabled || !global.GasBridge.isGasEnabled() || typeof global.GasBridge.pullMinMapDraftsFromDrive !== 'function') {
+                    showToast('Cần kết nối GAS #1 để kéo từ Drive!', 'error');
+                    return;
+                }
+                if (typeof global.confirm === 'function' && !global.confirm('Kéo bộ Bài giảng MinMap từ Google Drive (ghi đè bộ đang soạn trên máy này)?')) return;
+                var stEl = $('#mm-deck-sync-status');
+                if (stEl) { stEl.style.color = '#93c5fd'; stEl.textContent = '⏳ Đang tải bộ Bài giảng MinMap từ Drive...'; }
+                global.GasBridge.pullMinMapDraftsFromDrive(putSlideDataUrl, function (p) {
+                    if (stEl && p) stEl.textContent = '⏳ Đang tải ảnh: ' + (p.done || 0) + '/' + (p.total || 0) + '...';
+                }).then(function (r) {
+                    if (r && r.ok && r.data && Array.isArray(r.data.decks) && r.data.decks.length) {
+                        _deckState.decks = r.data.decks;
+                        _deckState.activeId = r.data.activeId || r.data.decks[0].id;
+                        _editingSlideIdx = -1;
+                        _memSlideMap = {};
+                        saveDecksMeta();
+                        renderDeckDrawer();
+                        if (stEl) { stEl.style.color = '#6ee7b7'; stEl.textContent = '✅ Đã kéo ' + (r.deckCount || 0) + ' bộ & ' + (r.imageCount || 0) + ' ảnh từ Drive!'; }
+                        showToast('Đã kéo bộ Bài giảng MinMap từ Drive về máy!', 'success');
+                    } else {
+                        if (stEl) { stEl.style.color = '#fca5a5'; stEl.textContent = '⚠️ ' + ((r && r.error) || 'Chưa có dữ liệu trên Drive'); }
+                    }
+                });
+            });
+        }
         $('#mm-export-hs-pdf').addEventListener('click', function () { var d = getActiveDeck(); exportHsSlidesToPdf(d.hsSlides, d.name); });
         $('#mm-export-gv-zip').addEventListener('click', exportGvDeckZip);
         $('#mm-export-hs-zip').addEventListener('click', exportHsDeckZip);
