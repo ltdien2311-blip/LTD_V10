@@ -58,6 +58,8 @@
         blankWidths: {},
         blankRows: {},
         lineAligns: {},
+        branchAligns: {},
+        selectedTeacherRow: null,
         selectedBranch: 0,
         branchImages: {},
         teacherSeq: 1,
@@ -249,6 +251,16 @@
         return '<div class="vp-writing-lines">' + rules + '</div>';
     }
 
+    function getTeacherLineAlignClass(rowIdx, branchIdx, student) {
+        if (student) {
+            return state.lineAligns[rowIdx] === 'justify' ? ' mm-justify' : '';
+        }
+        var al = state.lineAligns[rowIdx] || (state.branchAligns && state.branchAligns[branchIdx]) || 'justify';
+        if (al === 'right') return ' mm-align-right';
+        if (al === 'left') return ' mm-align-left';
+        return ' mm-align-justify';
+    }
+
     function renderCardHtml(c, idx, student, colorState) {
         var selCls = idx === state.selectedBranch ? ' vp-selected' : '';
         var fs = student ? state.studentBodyFs : state.teacherBodyFs;
@@ -269,7 +281,7 @@
                     var pfx = (l.ok ? '*' : '') + l.letter + ') ';
                     h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + '"' + (!student ? ' contenteditable="true" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student);
                 } else {
-                    var jCls0 = state.lineAligns[l.rowIdx] === 'justify' ? ' mm-justify' : '';
+                    var jCls0 = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jCls0 + '" data-depth="0" data-row="' + l.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + '"' + (!student ? ' contenteditable="true" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
                 }
             });
@@ -278,7 +290,7 @@
                 var r = renderInline(l.text, student, colorState, idx, li);
                 var lineFs = l.depth === 0 ? parentFs : fs;
                 var lineFw = student ? 400 : (l.depth === 0 ? 700 : 400);
-                var jClsN = state.lineAligns[l.rowIdx] === 'justify' ? ' mm-justify' : '';
+                var jClsN = getTeacherLineAlignClass(l.rowIdx, idx, student);
                 h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="margin-left:' + (l.depth * 1.1) + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + '"' + (!student ? ' contenteditable="true" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
             });
         }
@@ -527,6 +539,8 @@
         if (stS) stS.classList.toggle('hidden', state.tab !== 'student');
         var stuPanel = $('#mm-student-blanks-panel');
         if (stuPanel) stuPanel.classList.toggle('hidden', state.tab !== 'student');
+        var tAlign = $('#mm-teacher-align-box');
+        if (tAlign) tAlign.classList.toggle('hidden', state.tab !== 'teacher');
         var hsExtra = $('#mm-hs-extra-sec');
         if (hsExtra) hsExtra.classList.toggle('hidden', state.tab !== 'student');
         var bgBox = $('#mm-teacher-theme-box'), slBox = $('#mm-teacher-slogan-box');
@@ -828,6 +842,13 @@
             '          </div>',
             '        </div>',
             '        <div class="mm-tb-side">',
+            '          <div class="vp-pill-group" id="mm-teacher-align-box" title="Canh lề nội dung bản Giáo viên (mặc định Canh đều)">',
+            '            <span style="font-size:10px;color:#94a3b8">Lề</span>',
+            '            <button type="button" class="vp-btn-sm" id="mm-align-left" title="Canh trái dòng/khung đang chọn">⫷ Trái</button>',
+            '            <button type="button" class="vp-btn-sm accent" id="mm-align-justify" title="Canh đều 2 mép (mặc định)">⫼ Đều</button>',
+            '            <button type="button" class="vp-btn-sm" id="mm-align-right" title="Canh phải dòng/khung đang chọn">⫸ Phải</button>',
+            '            <button type="button" class="vp-btn-sm" id="mm-align-scope" title="Chuyển phạm vi: Dòng đang đặt con trỏ hoặc Cả khung đang chọn">Dòng/Khung</button>',
+            '          </div>',
             '          <div class="vp-pill-group" id="mm-teacher-img-box" title="Ảnh khung đang chọn">',
             '            <span style="font-size:11px">🖼️</span>',
             '            <button type="button" class="vp-step-btn" id="mm-img-w-dec">−</button>',
@@ -1323,6 +1344,72 @@
             renderAll();
         });
 
+        (function bindTeacherAlignControls() {
+            var alignScopeMode = 'auto'; // 'auto' (dòng đang chọn nếu có, không thì cả khung) | 'branch'
+            var tStage = $('#mm-stage-teacher');
+            if (tStage) {
+                tStage.addEventListener('focusin', function (e) {
+                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row]') : null;
+                    if (ln) {
+                        var r = parseInt(ln.getAttribute('data-row'), 10);
+                        if (!isNaN(r)) state.selectedTeacherRow = r;
+                    }
+                    var box = e.target && e.target.closest ? e.target.closest('.vp-box[data-branch]') : null;
+                    if (box) {
+                        var b = parseInt(box.getAttribute('data-branch'), 10) - 1;
+                        if (!isNaN(b) && b >= 0) state.selectedBranch = b;
+                    }
+                    syncAlignButtonsUi();
+                });
+                tStage.addEventListener('click', function (e) {
+                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row]') : null;
+                    state.selectedTeacherRow = ln ? parseInt(ln.getAttribute('data-row'), 10) : null;
+                    syncAlignButtonsUi();
+                });
+            }
+            function currentTargetAlign() {
+                if (alignScopeMode !== 'branch' && state.selectedTeacherRow !== null && state.lineAligns[state.selectedTeacherRow]) {
+                    return state.lineAligns[state.selectedTeacherRow];
+                }
+                return (state.branchAligns && state.branchAligns[state.selectedBranch]) || 'justify';
+            }
+            function syncAlignButtonsUi() {
+                var cur = currentTargetAlign();
+                var bL = $('#mm-align-left'), bJ = $('#mm-align-justify'), bR = $('#mm-align-right'), bS = $('#mm-align-scope');
+                if (bL) bL.classList.toggle('accent', cur === 'left');
+                if (bJ) bJ.classList.toggle('accent', cur === 'justify');
+                if (bR) bR.classList.toggle('accent', cur === 'right');
+                if (bS) bS.textContent = (alignScopeMode === 'branch' || state.selectedTeacherRow === null) ? 'Khung' : 'Dòng';
+            }
+            function applyTeacherAlign(al) {
+                if (!state.branchAligns || typeof state.branchAligns !== 'object') state.branchAligns = {};
+                if (alignScopeMode !== 'branch' && state.selectedTeacherRow !== null && !isNaN(state.selectedTeacherRow)) {
+                    state.lineAligns[state.selectedTeacherRow] = al;
+                } else {
+                    state.branchAligns[state.selectedBranch] = al;
+                    // Xóa override dòng thuộc khung đang chọn để cả khung đồng bộ ngay
+                    var box = $('#mm-stage-teacher .vp-box[data-branch="' + (state.selectedBranch + 1) + '"]');
+                    if (box) {
+                        Array.prototype.slice.call(box.querySelectorAll('.vp-line[data-row]')).forEach(function (el) {
+                            var r = parseInt(el.getAttribute('data-row'), 10);
+                            if (!isNaN(r)) delete state.lineAligns[r];
+                        });
+                    }
+                }
+                syncAlignButtonsUi();
+                renderStage(true);
+                fitStage();
+            }
+            if ($('#mm-align-left')) $('#mm-align-left').addEventListener('click', function () { applyTeacherAlign('left'); });
+            if ($('#mm-align-justify')) $('#mm-align-justify').addEventListener('click', function () { applyTeacherAlign('justify'); });
+            if ($('#mm-align-right')) $('#mm-align-right').addEventListener('click', function () { applyTeacherAlign('right'); });
+            if ($('#mm-align-scope')) $('#mm-align-scope').addEventListener('click', function () {
+                alignScopeMode = (alignScopeMode === 'branch') ? 'auto' : 'branch';
+                syncAlignButtonsUi();
+            });
+            syncAlignButtonsUi();
+        })();
+
         function ensureBlankFloatbar() {
             var fb = $('#mm-blank-floatbar');
             if (!fb && modalEl) {
@@ -1720,6 +1807,7 @@
                 blankWidths: cloneSettingVal(state.blankWidths, {}),
                 blankRows: cloneSettingVal(state.blankRows, {}),
                 lineAligns: cloneSettingVal(state.lineAligns, {}),
+                branchAligns: cloneSettingVal(state.branchAligns, {}),
                 branchImages: cloneSettingVal(state.branchImages, {})
             };
         }
@@ -1748,6 +1836,7 @@
             state.blankWidths = cloneSettingVal(cfg.blankWidths, {});
             state.blankRows = cloneSettingVal(cfg.blankRows, {});
             state.lineAligns = cloneSettingVal(cfg.lineAligns, {});
+            state.branchAligns = cloneSettingVal(cfg.branchAligns, {});
             state.branchImages = cloneSettingVal(cfg.branchImages, {});
             try {
                 if (typeof switchTab === 'function') switchTab(state.tab);
