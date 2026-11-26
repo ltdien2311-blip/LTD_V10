@@ -2574,16 +2574,19 @@
                     showToast('Cần kết nối GAS #1 để đẩy lên Drive!', 'error');
                     return;
                 }
-                if (typeof global.confirm === 'function' && !global.confirm('Đẩy bộ Bài giảng MinMap (ảnh + Markdown + thiết lập) lên Google Drive để soạn tiếp trên máy khác?')) return;
+                var activeDk = getActiveDeck();
+                var dName = (activeDk && activeDk.name) ? activeDk.name : 'Bài giảng';
+                if (typeof global.confirm === 'function' && !global.confirm('Đẩy bài giảng "' + dName + '" lên Google Drive (tự ghi đè nếu đã có bài cùng tên, giữ nguyên các bài khác)?')) return;
                 var stEl = $('#mm-deck-sync-status');
-                if (stEl) { stEl.style.color = '#93c5fd'; stEl.textContent = '⏳ Đang đẩy ảnh & thiết lập MinMap lên Drive...'; }
-                var meta = { activeId: _deckState.activeId, decks: loadDecksMeta() };
+                if (stEl) { stEl.style.color = '#93c5fd'; stEl.textContent = '⏳ Đang đẩy "' + dName + '" lên Drive...'; }
+                var meta = { activeId: activeDk.id, decks: [activeDk] };
                 global.GasBridge.pushMinMapDraftsToDrive(meta, getSlideDataUrl, function (p) {
-                    if (stEl && p) stEl.textContent = '⏳ Đang đẩy ảnh: ' + (p.done || 0) + '/' + (p.total || 0) + '...';
+                    if (stEl && p) stEl.textContent = '⏳ Ảnh: ' + (p.done || 0) + '/' + (p.total || 0) + (p.skipped ? (' (bỏ qua ' + p.skipped + ' ảnh cũ)') : '') + '...';
                 }).then(function (r) {
                     if (r && r.ok) {
-                        if (stEl) { stEl.style.color = '#6ee7b7'; stEl.textContent = '✅ Đã đẩy ' + (r.deckCount || 0) + ' bộ & ' + (r.imageCount || 0) + ' ảnh lên Drive!'; }
-                        showToast('Đã đẩy bộ Bài giảng MinMap lên Drive!', 'success');
+                        var skipTxt = r.skippedImages ? (' · bỏ qua ' + r.skippedImages + ' ảnh cũ') : '';
+                        if (stEl) { stEl.style.color = '#6ee7b7'; stEl.textContent = '✅ Đã đẩy "' + dName + '" (' + (r.imageCount || 0) + ' ảnh mới' + skipTxt + ')!'; }
+                        showToast('Đã đẩy bài giảng "' + dName + '" lên Drive!', 'success');
                     } else {
                         if (stEl) { stEl.style.color = '#fca5a5'; stEl.textContent = '⚠️ ' + ((r && r.error) || 'Lỗi đẩy Drive'); }
                     }

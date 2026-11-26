@@ -4077,6 +4077,26 @@
         };
     }
 
+    var LS_MM_UPLOADED_IMGS = 'LTD_MM_UPLOADED_IMGS_V1';
+    function normalizeDeckName(name) {
+        return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+    function quickImgSig(url) {
+        var s = String(url || '');
+        if (!s) return '';
+        return s.length + ':' + s.slice(0, 48) + ':' + s.slice(-48);
+    }
+    function readUploadedImgCache() {
+        try {
+            var raw = localStorage.getItem(LS_MM_UPLOADED_IMGS);
+            var obj = raw ? JSON.parse(raw) : {};
+            return (obj && typeof obj === 'object') ? obj : {};
+        } catch (e) { return {}; }
+    }
+    function writeUploadedImgCache(map) {
+        try { localStorage.setItem(LS_MM_UPLOADED_IMGS, JSON.stringify(map || {})); } catch (e) {}
+    }
+
     function pushMinMapDraftsToDrive(decksMeta, getSlideDataUrlFn, onProgress) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         var meta = Array.isArray(decksMeta) ? { activeId: (decksMeta[0] && decksMeta[0].id) || '', decks: decksMeta } : (decksMeta && typeof decksMeta === 'object' ? decksMeta : { activeId: '', decks: [] });
@@ -4087,9 +4107,11 @@
             (Array.isArray(dk.slides) ? dk.slides : []).forEach(function (s) { if (s && s.id) allSlides.push(s); });
             (Array.isArray(dk.hsSlides) ? dk.hsSlides : []).forEach(function (s) { if (s && s.id) allSlides.push(s); });
         });
+        var uploadedCache = readUploadedImgCache();
         var totalImgs = allSlides.length;
         var doneImgs = 0;
         var okImgs = 0;
+        var skippedImgs = 0;
         var imgChain = Promise.resolve();
         var IMG_BATCH = 4;
 
@@ -4099,15 +4121,23 @@
                     return Promise.all(slice.map(function (sl) {
                         return Promise.resolve(typeof getSlideDataUrlFn === 'function' ? getSlideDataUrlFn(sl.id) : '').then(function (url) {
                             if (!url || String(url).indexOf('data:image/') !== 0) return { ok: false };
+                            var sig = quickImgSig(url);
+                            if (sig && uploadedCache[sl.id] === sig) {
+                                skippedImgs++;
+                                return { ok: true, skipped: true };
+                            }
                             return saveImageToDrive(sl.id, url).then(function (r) {
-                                if (r && r.ok) okImgs++;
+                                if (r && r.ok) {
+                                    okImgs++;
+                                    uploadedCache[sl.id] = sig;
+                                }
                                 return r;
                             }).catch(function () { return { ok: false }; });
                         });
                     })).then(function () {
                         doneImgs += slice.length;
                         if (typeof onProgress === 'function') {
-                            try { onProgress({ phase: 'images', done: doneImgs, total: totalImgs }); } catch (e) {}
+                            try { onProgress({ phase: 'images', done: doneImgs, total: totalImgs, skipped: skippedImgs }); } catch (e) {}
                         }
                     });
                 });
@@ -4115,22 +4145,48 @@
         }
 
         return imgChain.then(function () {
+            writeUploadedImgCache(uploadedCache);
+            return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).catch(function () { return null; });
+        }).then(function (remoteRes) {
+            var remoteDecks = (remoteRes && remoteRes.ok && remoteRes.data && Array.isArray(remoteRes.data.decks))
+                ? remoteRes.data.decks.slice()
+                : [];
+            var byNormName = {};
+            remoteDecks.forEach(function (rd, idx) {
+                if (rd && rd.name) byNormName[normalizeDeckName(rd.name)] = idx;
+            });
+
             var CHUNK = 10;
-            var indexDecks = [];
             var saveJobs = Promise.resolve();
+            var pushedCount = 0;
+            var lastTargetId = String(meta.activeId || '');
 
             decks.forEach(function (dk) {
                 if (!dk || !dk.id) return;
+                var norm = normalizeDeckName(dk.name || 'Bài giảng');
+                var existIdx = (norm && byNormName.hasOwnProperty(norm)) ? byNormName[norm] : -1;
+                var targetId = existIdx >= 0 ? String(remoteDecks[existIdx].id || dk.id) : String(dk.id);
+                lastTargetId = targetId;
                 var gv = Array.isArray(dk.slides) ? dk.slides : [];
                 var hs = Array.isArray(dk.hsSlides) ? dk.hsSlides : [];
                 var maxLen = Math.max(gv.length, hs.length);
                 var parts = Math.max(1, Math.ceil(maxLen / CHUNK));
-                indexDecks.push({
-                    id: String(dk.id),
-                    name: String(dk.name || 'Bài giảng'),
+                var entry = {
+                    id: targetId,
+                    name: String(dk.name || 'Bài giảng').trim() || 'Bài giảng',
                     minMapMarkdown: String(dk.minMapMarkdown || ''),
-                    parts: parts
-                });
+                    parts: parts,
+                    slideCount: gv.length,
+                    hsSlideCount: hs.length,
+                    updatedAt: Date.now()
+                };
+                if (existIdx >= 0) {
+                    remoteDecks[existIdx] = entry;
+                } else {
+                    byNormName[norm] = remoteDecks.length;
+                    remoteDecks.push(entry);
+                }
+                pushedCount++;
                 for (var p = 0; p < parts; p++) {
                     (function (deckId, partIdx, gvSlice, hsSlice) {
                         saveJobs = saveJobs.then(function () {
@@ -4141,7 +4197,7 @@
                                 data: { slides: gvSlice, hsSlides: hsSlice }
                             }, 1);
                         });
-                    })(dk.id, p, gv.slice(p * CHUNK, (p + 1) * CHUNK), hs.slice(p * CHUNK, (p + 1) * CHUNK));
+                    })(targetId, p, gv.slice(p * CHUNK, (p + 1) * CHUNK), hs.slice(p * CHUNK, (p + 1) * CHUNK));
                 }
             });
 
@@ -4150,10 +4206,17 @@
                     action: 'saveBankData',
                     keyName: 'MINMAP_DRAFTS_INDEX',
                     title: 'MinMap Drafts Index',
-                    data: { activeId: String(meta.activeId || ''), decks: indexDecks, updatedAt: Date.now() }
+                    data: { activeId: lastTargetId, decks: remoteDecks, updatedAt: Date.now() }
                 }, 1);
             }).then(function () {
-                return { ok: true, deckCount: indexDecks.length, imageCount: okImgs, totalImages: totalImgs };
+                return {
+                    ok: true,
+                    deckCount: pushedCount,
+                    totalRemoteDecks: remoteDecks.length,
+                    imageCount: okImgs,
+                    skippedImages: skippedImgs,
+                    totalImages: totalImgs
+                };
             });
         }).catch(function (err) {
             return { ok: false, error: (err && err.message) || String(err) };
