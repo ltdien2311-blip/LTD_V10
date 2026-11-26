@@ -279,7 +279,7 @@
         var parentFs = student ? Math.round(fs * 1.077) : Math.round(fs * 1.075);
         var h = '<section class="vp-box vp-shape' + selCls + '" data-branch="' + (idx + 1) + '" style="--frame:' + FRAMES[idx] + '">';
         var btAlignVal = (!student && c.type === 'mm' && state.lineAligns[c.rowIdx]) ? state.lineAligns[c.rowIdx] : '';
-        var btAlignCss = btAlignVal ? (' style="text-align:' + btAlignVal + ';text-align-last:' + (btAlignVal === 'right' ? 'right' : (btAlignVal === 'left' ? 'left' : 'auto')) + '"') : '';
+        var btAlignCss = btAlignVal ? (' style="text-align:' + btAlignVal + ';text-align-last:' + (btAlignVal === 'right' ? 'right' : 'left') + '"') : '';
         var btAlignCls = btAlignVal ? (' mm-align-' + btAlignVal) : '';
         h += '<div class="vp-box-title' + btAlignCls + '"' + btAlignCss + (c.type === 'mm' ? ' data-row="' + c.rowIdx + '"' : '') + (!student && c.type === 'mm' ? ' contenteditable="true" spellcheck="false" data-prefix="## "' : '') + '>' + renderMathText(c.title) + '</div>';
         h += '<div class="vp-lines" style="font-size:' + fs + 'px">';
@@ -288,7 +288,7 @@
                 var stemTxt = student ? ensureTrailingDot(c.stem) : c.stem;
                 var stemCls = getTeacherLineAlignClass(c.rowIdx, idx, student);
                 var stemVal = getTeacherLineAlignVal(c.rowIdx, idx, student);
-                var stemCss = stemVal ? (';text-align:' + stemVal + (stemVal === 'right' ? ';text-align-last:right' : (stemVal === 'left' ? ';text-align-last:left' : ''))) : '';
+                var stemCss = stemVal ? (';text-align:' + stemVal + ';text-align-last:' + (stemVal === 'right' ? 'right' : 'left')) : '';
                 h += '<div class="vp-line' + stemCls + '" data-depth="0" data-row="' + c.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + ';margin-bottom:0.45em' + stemCss + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix="' + escapeHtml(c.title) + '. "' : '') + '>' + renderMathText(stemTxt) + '</div>';
             }
             c.lines.forEach(function (l, li) {
@@ -298,12 +298,12 @@
                     var pfx = (l.ok ? '*' : '') + l.letter + ') ';
                     var tfCls = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var tfVal = getTeacherLineAlignVal(l.rowIdx, idx, student);
-                    var tfCss = tfVal ? (' style="text-align:' + tfVal + (tfVal === 'right' ? ';text-align-last:right' : (tfVal === 'left' ? ';text-align-last:left' : '')) + '"') : '';
+                    var tfCss = tfVal ? (' style="text-align:' + tfVal + ';text-align-last:' + (tfVal === 'right' ? 'right' : 'left') + '"') : '';
                     h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + tfCls + '"' + tfCss + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student);
                 } else {
                     var jCls0 = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var alVal0 = getTeacherLineAlignVal(l.rowIdx, idx, student);
-                    var alCss0 = alVal0 ? (';text-align:' + alVal0 + (alVal0 === 'right' ? ';text-align-last:right' : (alVal0 === 'left' ? ';text-align-last:left' : ''))) : '';
+                    var alCss0 = alVal0 ? (';text-align:' + alVal0 + ';text-align-last:' + (alVal0 === 'right' ? 'right' : 'left')) : '';
                     h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jCls0 + '" data-depth="0" data-row="' + l.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + alCss0 + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
                 }
             });
@@ -315,7 +315,7 @@
                 var jClsN = getTeacherLineAlignClass(l.rowIdx, idx, student);
                 var alValN = getTeacherLineAlignVal(l.rowIdx, idx, student);
                 var plN = (alValN === 'right') ? 0 : (l.depth * 1.1);
-                var alCssN = alValN ? (';text-align:' + alValN + (alValN === 'right' ? ';text-align-last:right' : (alValN === 'left' ? ';text-align-last:left' : ''))) : '';
+                var alCssN = alValN ? (';text-align:' + alValN + ';text-align-last:' + (alValN === 'right' ? 'right' : 'left')) : '';
                 h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="padding-left:' + plN + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + alCssN + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
             });
         }
@@ -339,6 +339,7 @@
         saveDraft();
         renderStage(true);
         fitStage();
+        checkTeacherOverflow();
     }
 
     function renderStage(student) {
@@ -1386,15 +1387,15 @@
 
         (function bindTeacherAlignControls() {
             var tStage = $('#mm-stage-teacher');
-            var ed = $('#markdown-editor');
+            var edEl = $('#markdown-editor');
             function getEditorCursorRow() {
-                if (!ed || typeof ed.selectionStart !== 'number') return null;
-                var val = String(ed.value || '');
-                return val.slice(0, ed.selectionStart).split('\n').length - 1;
+                if (!edEl || typeof edEl.selectionStart !== 'number') return null;
+                var val = String(edEl.value || '');
+                return val.slice(0, edEl.selectionStart).split('\n').length - 1;
             }
-            function getActiveCursorRow() {
+            function resolveActiveTeacherRow() {
                 var ae = document.activeElement;
-                if (ae && ae === ed) {
+                if (ae && ae === edEl) {
                     var er = getEditorCursorRow();
                     if (er !== null) state.selectedTeacherRow = er;
                 } else if (ae && tStage && tStage.contains(ae)) {
@@ -1409,9 +1410,44 @@
                 }
                 return getEditorCursorRow();
             }
-            if (ed) {
+            function syncAlignButtonsUi() {
+                var r = state.selectedTeacherRow;
+                var cur = (r !== null && !isNaN(r) && state.lineAligns[r]) ? state.lineAligns[r] : 'justify';
+                var bL = $('#mm-align-left'), bJ = $('#mm-align-justify'), bR = $('#mm-align-right'), rLbl = $('#mm-align-row-lbl');
+                if (bL) bL.classList.toggle('accent', cur === 'left');
+                if (bJ) bJ.classList.toggle('accent', cur === 'justify');
+                if (bR) bR.classList.toggle('accent', cur === 'right');
+                if (rLbl) rLbl.textContent = (r !== null && !isNaN(r)) ? ('D.' + (r + 1)) : 'Lề';
+            }
+            function applyTeacherAlignRow(r, al, restoreStageFocus) {
+                if (r === null || isNaN(r) || r < 0) {
+                    showToast('Hãy đặt con trỏ vào 1 dòng ở Cột 1 hoặc Slide GV trước khi chỉnh lề.', 'warning');
+                    return false;
+                }
+                var ae = document.activeElement;
+                var shouldRestoreStage = (typeof restoreStageFocus === 'boolean')
+                    ? restoreStageFocus
+                    : !!(ae && tStage && tStage.contains(ae));
+                state.selectedTeacherRow = r;
+                state.lineAligns[r] = al;
+                syncAlignButtonsUi();
+                renderStage(false);
+                fitStage();
+                checkTeacherOverflow();
+                if (shouldRestoreStage && tStage) {
+                    var nextLine = tStage.querySelector('[data-row="' + r + '"]');
+                    if (nextLine && typeof nextLine.focus === 'function') {
+                        try { nextLine.focus({ preventScroll: true }); } catch (err) { try { nextLine.focus(); } catch (e2) {} }
+                    }
+                }
+                try { if (typeof syncStageToRow === 'function') syncStageToRow(r); } catch (e3) {}
+                var lbl = al === 'right' ? 'Canh phải' : (al === 'left' ? 'Canh trái' : 'Canh đều');
+                setStatus('✓ ' + lbl + ' Dòng ' + (r + 1));
+                return true;
+            }
+            if (edEl) {
                 ['keyup', 'mouseup', 'click', 'focus'].forEach(function (evName) {
-                    ed.addEventListener(evName, function () {
+                    edEl.addEventListener(evName, function () {
                         var er = getEditorCursorRow();
                         if (er !== null) state.selectedTeacherRow = er;
                         syncAlignButtonsUi();
@@ -1419,54 +1455,28 @@
                 });
             }
             if (tStage) {
-                tStage.addEventListener('focusin', function (e) {
-                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row], .vp-box-title[data-row], .mm-tf-txt[data-row]') : null;
-                    if (ln) {
-                        var r = parseInt(ln.getAttribute('data-row'), 10);
-                        if (!isNaN(r)) state.selectedTeacherRow = r;
-                    }
-                    syncAlignButtonsUi();
+                ['focusin', 'mousedown', 'click'].forEach(function (evName) {
+                    tStage.addEventListener(evName, function (e) {
+                        var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row], .vp-box-title[data-row], .mm-tf-txt[data-row]') : null;
+                        if (ln) {
+                            var r = parseInt(ln.getAttribute('data-row'), 10);
+                            if (!isNaN(r)) state.selectedTeacherRow = r;
+                        }
+                        syncAlignButtonsUi();
+                    });
                 });
-                tStage.addEventListener('mousedown', function (e) {
-                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row], .vp-box-title[data-row], .mm-tf-txt[data-row]') : null;
-                    if (ln) {
-                        var r = parseInt(ln.getAttribute('data-row'), 10);
-                        if (!isNaN(r)) state.selectedTeacherRow = r;
-                    }
-                    syncAlignButtonsUi();
-                });
-            }
-            function syncAlignButtonsUi() {
-                var r = state.selectedTeacherRow;
-                var cur = (r !== null && state.lineAligns[r]) ? state.lineAligns[r] : 'justify';
-                var bL = $('#mm-align-left'), bJ = $('#mm-align-justify'), bR = $('#mm-align-right'), rLbl = $('#mm-align-row-lbl');
-                if (bL) bL.classList.toggle('accent', cur === 'left');
-                if (bJ) bJ.classList.toggle('accent', cur === 'justify');
-                if (bR) bR.classList.toggle('accent', cur === 'right');
-                if (rLbl) rLbl.textContent = (r !== null && !isNaN(r)) ? ('D.' + (r + 1)) : 'Lề';
-            }
-            function applyTeacherAlign(al) {
-                var r = getActiveCursorRow();
-                if (r === null || isNaN(r)) {
-                    showToast('Hãy đặt con trỏ vào 1 dòng ở Cột 1 hoặc Slide GV trước khi chỉnh lề.', 'warning');
-                    return;
-                }
-                state.selectedTeacherRow = r;
-                state.lineAligns[r] = al;
-                syncAlignButtonsUi();
-                renderStage(false);
-                fitStage();
-                checkTeacherOverflow();
-                var lbl = al === 'right' ? 'Canh phải' : (al === 'left' ? 'Canh trái' : 'Canh đều');
-                setStatus('✓ ' + lbl + ' Dòng ' + (r + 1));
             }
             ['#mm-align-left', '#mm-align-justify', '#mm-align-right'].forEach(function (sel) {
                 var el = $(sel);
                 if (el) el.addEventListener('mousedown', function (ev) { ev.preventDefault(); });
             });
-            if ($('#mm-align-left')) $('#mm-align-left').addEventListener('click', function () { applyTeacherAlign('left'); });
-            if ($('#mm-align-justify')) $('#mm-align-justify').addEventListener('click', function () { applyTeacherAlign('justify'); });
-            if ($('#mm-align-right')) $('#mm-align-right').addEventListener('click', function () { applyTeacherAlign('right'); });
+            if ($('#mm-align-left')) $('#mm-align-left').addEventListener('click', function () { applyTeacherAlignRow(resolveActiveTeacherRow(), 'left'); });
+            if ($('#mm-align-justify')) $('#mm-align-justify').addEventListener('click', function () { applyTeacherAlignRow(resolveActiveTeacherRow(), 'justify'); });
+            if ($('#mm-align-right')) $('#mm-align-right').addEventListener('click', function () { applyTeacherAlignRow(resolveActiveTeacherRow(), 'right'); });
+            if (modalEl) {
+                modalEl._applyTeacherAlignRow = applyTeacherAlignRow;
+                modalEl._syncAlignButtonsUi = syncAlignButtonsUi;
+            }
             syncAlignButtonsUi();
         })();
 
@@ -2712,9 +2722,10 @@
         renderDeckDrawer();
 
         function toggleJustifyAtCursor(e) {
-            var target = e && e.target ? e.target : document.activeElement;
+            var target = (e && e.target && e.target !== document) ? e.target : document.activeElement;
             var lineEl = target && target.closest ? target.closest('.vp-line[data-row], .vp-box-title[data-row], .mm-tf-txt[data-row]') : null;
             var rowIdx = -1;
+            var onTeacherStage = !!(lineEl && lineEl.closest && lineEl.closest('#mm-teacher-stage-inner'));
             if (lineEl) {
                 rowIdx = parseInt(lineEl.getAttribute('data-row'), 10);
             } else if (target === ed || document.activeElement === ed) {
@@ -2740,17 +2751,9 @@
             }
             var curAl = state.lineAligns[rowIdx] || 'justify';
             var nextAl = (curAl === 'justify') ? 'left' : 'justify';
-            state.selectedTeacherRow = rowIdx;
-            state.lineAligns[rowIdx] = nextAl;
-            renderStage(false);
-            fitStage();
-            checkTeacherOverflow();
-            var bL = $('#mm-align-left'), bJ = $('#mm-align-justify'), bR = $('#mm-align-right'), rLbl = $('#mm-align-row-lbl');
-            if (bL) bL.classList.toggle('accent', nextAl === 'left');
-            if (bJ) bJ.classList.toggle('accent', nextAl === 'justify');
-            if (bR) bR.classList.toggle('accent', nextAl === 'right');
-            if (rLbl) rLbl.textContent = 'D.' + (rowIdx + 1);
-            setStatus('✓ ' + (nextAl === 'justify' ? 'Canh đều' : 'Canh trái') + ' Dòng ' + (rowIdx + 1));
+            if (modalEl && typeof modalEl._applyTeacherAlignRow === 'function') {
+                modalEl._applyTeacherAlignRow(rowIdx, nextAl, onTeacherStage);
+            }
         }
         document.addEventListener('keydown', function (e) {
             if (!modalEl || modalEl.classList.contains('hidden')) return;

@@ -2317,7 +2317,8 @@ details.obs-acc.obs-grp-rose[open] > summary { border-bottom-color: rgba(251,113
 
 /* === [MT-33-fix] Hide Hidden Pill Groups & Ensure Block Width for Teacher Text Align === */
 #minmap-modal .vp-topbar .vp-pill-group.hidden { display: none !important; }
-#minmap-modal .vp-stage.teacher .vp-line {
+#minmap-modal .vp-stage.teacher .vp-line,
+#minmap-modal .vp-stage.teacher .mm-tf-txt {
     display: block !important;
     width: 100% !important;
     max-width: 100% !important;
