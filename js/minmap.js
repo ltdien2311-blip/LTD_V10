@@ -354,11 +354,14 @@
         var stEl = $(student ? '#mm-stage-student' : '#mm-stage-teacher');
         if (stEl && stEl.style && typeof stEl.style.setProperty === 'function') {
             stEl.style.setProperty('--mm-stage-font', fontStack);
-            stEl.style.setProperty('--mm-main-title-fs', state.teacherMainTitleFs + 'px');
-            stEl.style.setProperty('--mm-card-title-fs', state.teacherCardTitleFs + 'px');
-            stEl.style.setProperty('--mm-stu-main-title-fs', state.studentMainTitleFs + 'px');
-            stEl.style.setProperty('--mm-stu-card-title-fs', state.studentCardTitleFs + 'px');
-            applyBlankCssVars(stEl);
+            if (student) {
+                stEl.style.setProperty('--mm-stu-main-title-fs', state.studentMainTitleFs + 'px');
+                stEl.style.setProperty('--mm-stu-card-title-fs', state.studentCardTitleFs + 'px');
+                applyBlankCssVars(stEl);
+            } else {
+                stEl.style.setProperty('--mm-main-title-fs', state.teacherMainTitleFs + 'px');
+                stEl.style.setProperty('--mm-card-title-fs', state.teacherCardTitleFs + 'px');
+            }
         } else if (stEl && stEl.style) {
             stEl.style['--mm-stage-font'] = fontStack;
         }
@@ -582,6 +585,15 @@
         if (seqInp) seqInp.value = state.tab === 'teacher' ? state.teacherSeq : state.studentSeq;
         var presetSel = $('#mm-export-preset');
         if (presetSel) presetSel.value = state.tab;
+        var zoomBtn = $('#vp-zoom');
+        if (zoomBtn) zoomBtn.classList.toggle('on', state.tab === 'student' && !!state.zoom100);
+        var blankFb = $('#mm-blank-floatbar');
+        if (blankFb && state.tab !== 'student') blankFb.classList.add('hidden');
+        var scrollBox = $('.vp-canvas-scroll');
+        if (scrollBox && state.tab === 'teacher') scrollBox.scrollLeft = 0;
+        if (modalEl && typeof modalEl._syncAlignButtonsUi === 'function' && state.tab === 'teacher') {
+            modalEl._syncAlignButtonsUi();
+        }
         fitStage();
     }
 
@@ -1282,8 +1294,11 @@
         }
         $('#mm-font-select').addEventListener('change', function (e) {
             var val = e.target.value || 'Segoe UI';
-            if (state.tab === 'student') state.studentFont = val;
-            else { state.teacherFont = val; state.font = val; }
+            if (state.tab === 'student') {
+                state.studentFont = val;
+            } else {
+                state.teacherFont = val;
+            }
             renderActiveStageOnly();
         });
         function applyBodyFs(val) {

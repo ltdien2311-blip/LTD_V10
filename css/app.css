@@ -2326,3 +2326,14 @@ details.obs-acc.obs-grp-rose[open] > summary { border-bottom-color: rgba(251,113
     overflow-wrap: break-word !important;
     word-wrap: break-word !important;
 }
+
+/* === [MT-34] Strict Teacher/Student CSS Isolation === */
+#minmap-modal .vp-stage.teacher .vp-line.mm-justify,
+#minmap-modal .vp-stage.teacher .mm-tf-row.mm-justify {
+    text-justify: auto;
+}
+#minmap-modal .vp-stage.student .vp-line.mm-justify,
+#minmap-modal .vp-stage.student .mm-tf-row.mm-justify {
+    text-align: justify;
+    text-justify: inter-word;
+}
