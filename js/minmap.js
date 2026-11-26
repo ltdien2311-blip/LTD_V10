@@ -357,20 +357,6 @@
         var html = '<div class="vp-banner vp-shape">' + renderMathText(model.title.replace(/==/g, '') || 'Sơ đồ tư duy') + '</div>';
         html += '<div class="vp-cols-grid' + (student && cards.length === 1 ? ' single-col' : '') + '">';
         html += '<div class="vp-col-stack">' + cols[0].map(function (c) { return renderCardHtml(c, cards.indexOf(c), student, colorState); }).join('') + '</div>';
-        if (student) {
-            $all('#mm-student-stage-inner .vp-blank').forEach(function (bl) {
-                bl.addEventListener('click', function (ev) {
-                    var rParent = bl.closest ? bl.closest('[data-row]') : null;
-                    if (rParent && modalEl._syncRow) modalEl._syncRow(parseInt(rParent.getAttribute('data-row'), 10));
-                    ev.stopPropagation();
-                    state.selectedBlankId = bl.dataset.blankId;
-                    var info = $('#mm-selected-blank-info');
-                    if (info) info.textContent = '✓ Đang chọn ô #' + state.selectedBlankId;
-                    renderStage(true);
-                    fitStage();
-                });
-            });
-        }
         if (!student) {
             html += '<div class="vp-cam-col"></div>';
         }
@@ -399,7 +385,7 @@
             });
         }
         if (!student) {
-            $all('#mm-teacher-stage-inner [contenteditable="true" spellcheck="false"]').forEach(function (el) {
+            $all('#mm-teacher-stage-inner [contenteditable="true"]').forEach(function (el) {
                 el.addEventListener('input', function () {
                     syncInlineEdit(Number(el.dataset.row), el.innerText || el.textContent, el.dataset.prefix);
                 });
@@ -997,10 +983,15 @@
         ed.value = saved.trim() ? saved : SAMPLE_MINMAP;
         recordHistory();
 
+        var _edRenderTimer = null;
         ed.addEventListener('input', function () {
             saveDraft();
-            recordHistory();
-            renderAll();
+            if (_edRenderTimer) clearTimeout(_edRenderTimer);
+            _edRenderTimer = setTimeout(function () {
+                _edRenderTimer = null;
+                recordHistory();
+                renderAll();
+            }, 120);
         });
         var edFs = 13;
         try {
