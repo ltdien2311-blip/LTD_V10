@@ -51,6 +51,9 @@
         studentMainTitleFs: 24,
         studentCardTitleFs: 18.5,
         blankScale: 1,
+        blankRowGap: 26,
+        blankStyle: 'dotted',
+        blankWeight: 'medium',
         selectedBlankId: null,
         blankWidths: {},
         blankRows: {},
@@ -220,7 +223,8 @@
                 var defW = Math.max(3.2, Math.min(13, plain.length * 0.44 * state.blankScale));
                 var w = typeof custom === 'number' ? custom : defW;
                 var selCls = state.selectedBlankId === blankId ? ' vp-blank-selected' : '';
-                out += '<span class="vp-blank' + (isEnd ? ' vp-blank-end' : '') + selCls + '" data-blank-id="' + blankId + '" data-def-w="' + w.toFixed(1) + '" style="width:' + w.toFixed(1) + 'em"></span>';
+                var gripHtml = (state.selectedBlankId === blankId) ? '<span class="mm-blank-grip" data-blank-grip="' + blankId + '" title="Kéo ngang để chỉnh độ dài ô chấm"></span>' : '';
+                out += '<span class="vp-blank' + (isEnd ? ' vp-blank-end' : '') + selCls + '" data-blank-id="' + blankId + '" data-def-w="' + w.toFixed(1) + '" style="width:' + w.toFixed(1) + 'em">' + gripHtml + '</span>';
                 if (isEnd && src.slice(item.end).trim().length > 0) {
                     out += '<span class="vp-blank-break"></span>';
                 }
@@ -315,6 +319,7 @@
             stEl.style.setProperty('--mm-card-title-fs', state.teacherCardTitleFs + 'px');
             stEl.style.setProperty('--mm-stu-main-title-fs', state.studentMainTitleFs + 'px');
             stEl.style.setProperty('--mm-stu-card-title-fs', state.studentCardTitleFs + 'px');
+            applyBlankCssVars(stEl);
         } else if (stEl && stEl.style) {
             stEl.style['--mm-stage-font'] = fontStack;
         }
@@ -575,6 +580,18 @@
         return parts.join("\n");
     }
 
+    function applyBlankCssVars(targetEl) {
+        if (!targetEl || !targetEl.style || typeof targetEl.style.setProperty !== 'function') return;
+        var wMap = { thin: '1px', medium: '1.5px', bold: '2.2px' };
+        var cMap = { thin: '#64748b', medium: '#334155', bold: '#0f172a' };
+        var bw = wMap[state.blankWeight] || '1.5px';
+        var bc = cMap[state.blankWeight] || '#334155';
+        targetEl.style.setProperty('--mm-blank-row-h', (Number(state.blankRowGap) || 26) + 'px');
+        targetEl.style.setProperty('--mm-blank-style', state.blankStyle || 'dotted');
+        targetEl.style.setProperty('--mm-blank-border-w', bw);
+        targetEl.style.setProperty('--mm-blank-color', bc);
+    }
+
     function cleanCloneForExport(stage, mode, w, h) {
         var clone = stage.cloneNode(true);
         clone.classList.remove("hidden");
@@ -591,7 +608,11 @@
             clone.style.setProperty("--mm-card-title-fs", state.teacherCardTitleFs + "px");
             clone.style.setProperty("--mm-stu-main-title-fs", state.studentMainTitleFs + "px");
             clone.style.setProperty("--mm-stu-card-title-fs", state.studentCardTitleFs + "px");
+            applyBlankCssVars(clone);
         }
+        Array.prototype.slice.call(clone.querySelectorAll(".mm-blank-grip, #mm-blank-floatbar")).forEach(function (el) {
+            try { el.remove(); } catch (e) {}
+        });
         Array.prototype.slice.call(clone.querySelectorAll(".vp-selected, .vp-blank-selected, .mm-sync-active")).forEach(function (el) {
             el.classList.remove("vp-selected", "vp-blank-selected", "mm-sync-active");
         });
@@ -822,6 +843,25 @@
             '            <button type="button" class="vp-btn-sm accent" id="mm-blank-auto">↔ Cuối hàng</button>',
             '            <button type="button" class="vp-btn-sm" id="mm-blank-add-row">+ Hàng</button>',
             '            <button type="button" class="vp-btn-sm" id="mm-blank-rem-row">− Hàng</button>',
+            '            <span style="color:#475569;padding:0 2px">|</span>',
+            '            <span style="font-size:10px;color:#94a3b8" title="Co giãn đồng loạt tất cả ô chấm trên trang">Co/Giãn</span>',
+            '            <button type="button" class="vp-step-btn" id="mm-blank-scale-dec">−</button>',
+            '            <span id="mm-blank-scale-val" style="font-size:11px;font-weight:800;color:#fde047;min-width:34px;text-align:center">100%</span>',
+            '            <button type="button" class="vp-step-btn" id="mm-blank-scale-inc">+</button>',
+            '            <span style="font-size:10px;color:#94a3b8" title="Độ cao/thưa từng dòng chấm">Dòng</span>',
+            '            <button type="button" class="vp-step-btn" id="mm-blank-rowh-dec">−</button>',
+            '            <span id="mm-blank-rowh-val" style="font-size:11px;font-weight:800;color:#fde047;min-width:22px;text-align:center">26</span>',
+            '            <button type="button" class="vp-step-btn" id="mm-blank-rowh-inc">+</button>',
+            '            <select class="vp-select" id="mm-blank-style" title="Kiểu nét in A4 (mặc định Chấm)" style="height:24px;font-size:11px;padding:0 5px">',
+            '              <option value="dotted" selected>⋯ Chấm</option>',
+            '              <option value="solid">⎯ Liền</option>',
+            '              <option value="dashed">┄ Đứt</option>',
+            '            </select>',
+            '            <select class="vp-select" id="mm-blank-weight" title="Độ đậm nét khi photo A4" style="height:24px;font-size:11px;padding:0 5px">',
+            '              <option value="thin">Mảnh</option>',
+            '              <option value="medium" selected>Vừa</option>',
+            '              <option value="bold">Đậm</option>',
+            '            </select>',
             '          </div>',
             '        </div>',
             '      </div>',
@@ -1283,13 +1323,78 @@
             renderAll();
         });
 
+        function ensureBlankFloatbar() {
+            var fb = $('#mm-blank-floatbar');
+            if (!fb && modalEl) {
+                fb = document.createElement('div');
+                fb.id = 'mm-blank-floatbar';
+                fb.className = 'mm-blank-floatbar hidden';
+                fb.innerHTML =
+                    '<button type="button" class="mm-bf-btn" data-bf="shorter" title="Thu ngắn ô chấm">− Ngắn</button>' +
+                    '<button type="button" class="mm-bf-btn" data-bf="longer" title="Kéo dài ô chấm">+ Dài</button>' +
+                    '<button type="button" class="mm-bf-btn accent" data-bf="end" title="Bật/tắt kéo hết hàng">↔ Cuối</button>' +
+                    '<button type="button" class="mm-bf-btn" data-bf="addrow" title="Thêm dòng chấm bên dưới">+ Hàng</button>' +
+                    '<button type="button" class="mm-bf-btn" data-bf="remrow" title="Bớt dòng chấm bên dưới">− Hàng</button>' +
+                    '<button type="button" class="mm-bf-btn" data-bf="reset" title="Đặt lại mặc định">↺</button>' +
+                    '<button type="button" class="mm-bf-btn" data-bf="close" title="Bỏ chọn">✕</button>';
+                modalEl.appendChild(fb);
+                fb.addEventListener('click', function (ev) {
+                    var b = ev.target && ev.target.closest ? ev.target.closest('button[data-bf]') : null;
+                    if (!b) return;
+                    var act = b.getAttribute('data-bf');
+                    if (act === 'shorter') resizeSelectedBlank(-1.5);
+                    else if (act === 'longer') resizeSelectedBlank(1.5);
+                    else if (act === 'end') resizeSelectedBlank('toggle_end');
+                    else if (act === 'addrow') stepBlankRows(1);
+                    else if (act === 'remrow') stepBlankRows(-1);
+                    else if (act === 'reset') resizeSelectedBlank('reset');
+                    else if (act === 'close') {
+                        state.selectedBlankId = null;
+                        renderStage(true);
+                        fitStage();
+                        syncBlankFloatbar();
+                    }
+                });
+            }
+            return fb;
+        }
+        function syncBlankFloatbar() {
+            var fb = ensureBlankFloatbar();
+            if (!fb) return;
+            if (state.tab !== 'student' || !state.selectedBlankId) {
+                fb.classList.add('hidden');
+                return;
+            }
+            var bl = $('#mm-student-stage-inner [data-blank-id="' + state.selectedBlankId + '"]');
+            if (!bl || !bl.getBoundingClientRect) {
+                fb.classList.add('hidden');
+                return;
+            }
+            var r = bl.getBoundingClientRect();
+            if (!r.width && !r.height) { fb.classList.add('hidden'); return; }
+            fb.classList.remove('hidden');
+            var fbW = fb.offsetWidth || 310;
+            var left = Math.max(8, Math.min((global.innerWidth || 1200) - fbW - 8, r.left + r.width / 2 - fbW / 2));
+            var top = r.top > 110 ? (r.top - 42) : (r.bottom + 8);
+            fb.style.left = Math.round(left) + 'px';
+            fb.style.top = Math.round(top) + 'px';
+        }
         function resizeSelectedBlank(delta) {
             if (!state.selectedBlankId) {
                 showToast('Hãy bấm chọn 1 ô chấm trên bản Học sinh trước.', 'warning');
                 return;
             }
-            if (delta === 'end') {
+            if (delta === 'reset') {
+                delete state.blankWidths[state.selectedBlankId];
+                delete state.blankRows[state.selectedBlankId];
+            } else if (delta === 'end') {
                 state.blankWidths[state.selectedBlankId] = 'end';
+            } else if (delta === 'toggle_end') {
+                if (state.blankWidths[state.selectedBlankId] === 'end') {
+                    delete state.blankWidths[state.selectedBlankId];
+                } else {
+                    state.blankWidths[state.selectedBlankId] = 'end';
+                }
             } else {
                 var cur = typeof state.blankWidths[state.selectedBlankId] === 'number' ? state.blankWidths[state.selectedBlankId] : NaN;
                 if (isNaN(cur)) {
@@ -1297,14 +1402,15 @@
                     cur = blEl ? parseFloat(blEl.getAttribute('data-def-w') || blEl.style.width || '6') : 6;
                 }
                 if (isNaN(cur)) cur = 6;
-                state.blankWidths[state.selectedBlankId] = Math.max(2.5, Math.min(28, cur + delta));
+                state.blankWidths[state.selectedBlankId] = Math.max(2.2, Math.min(45, cur + delta));
             }
             renderStage(true);
             fitStage();
+            syncBlankFloatbar();
         }
         $('#mm-blank-shorter').addEventListener('click', function () { resizeSelectedBlank(-1.5); });
         $('#mm-blank-longer').addEventListener('click', function () { resizeSelectedBlank(1.5); });
-        $('#mm-blank-auto').addEventListener('click', function () { resizeSelectedBlank('end'); });
+        $('#mm-blank-auto').addEventListener('click', function () { resizeSelectedBlank('toggle_end'); });
         function stepBlankRows(delta) {
             if (!state.selectedBlankId) {
                 showToast('Hãy bấm chọn 1 ô chấm trên bản Học sinh trước.', 'warning');
@@ -1314,9 +1420,91 @@
             state.blankRows[state.selectedBlankId] = Math.max(0, Math.min(10, cur + delta));
             renderStage(true);
             fitStage();
+            syncBlankFloatbar();
         }
         $('#mm-blank-add-row').addEventListener('click', function () { stepBlankRows(1); });
         $('#mm-blank-rem-row').addEventListener('click', function () { stepBlankRows(-1); });
+        function syncBlankGlobalControls() {
+            var sv = $('#mm-blank-scale-val');
+            if (sv) sv.textContent = Math.round((Number(state.blankScale) || 1) * 100) + '%';
+            var rv = $('#mm-blank-rowh-val');
+            if (rv) rv.textContent = String(Number(state.blankRowGap) || 26);
+            var stSel = $('#mm-blank-style');
+            if (stSel) stSel.value = state.blankStyle || 'dotted';
+            var wtSel = $('#mm-blank-weight');
+            if (wtSel) wtSel.value = state.blankWeight || 'medium';
+        }
+        if ($('#mm-blank-scale-dec')) $('#mm-blank-scale-dec').addEventListener('click', function () {
+            state.blankScale = Math.max(0.6, Math.min(1.8, Number((Number(state.blankScale || 1) - 0.1).toFixed(2))));
+            syncBlankGlobalControls(); renderStage(true); fitStage(); syncBlankFloatbar();
+        });
+        if ($('#mm-blank-scale-inc')) $('#mm-blank-scale-inc').addEventListener('click', function () {
+            state.blankScale = Math.max(0.6, Math.min(1.8, Number((Number(state.blankScale || 1) + 0.1).toFixed(2))));
+            syncBlankGlobalControls(); renderStage(true); fitStage(); syncBlankFloatbar();
+        });
+        if ($('#mm-blank-rowh-dec')) $('#mm-blank-rowh-dec').addEventListener('click', function () {
+            state.blankRowGap = Math.max(20, Math.min(40, (Number(state.blankRowGap) || 26) - 2));
+            syncBlankGlobalControls(); renderStage(true); fitStage(); syncBlankFloatbar();
+        });
+        if ($('#mm-blank-rowh-inc')) $('#mm-blank-rowh-inc').addEventListener('click', function () {
+            state.blankRowGap = Math.max(20, Math.min(40, (Number(state.blankRowGap) || 26) + 2));
+            syncBlankGlobalControls(); renderStage(true); fitStage(); syncBlankFloatbar();
+        });
+        if ($('#mm-blank-style')) $('#mm-blank-style').addEventListener('change', function (e) {
+            state.blankStyle = e.target.value || 'dotted';
+            renderStage(true); fitStage();
+        });
+        if ($('#mm-blank-weight')) $('#mm-blank-weight').addEventListener('change', function (e) {
+            state.blankWeight = e.target.value || 'medium';
+            renderStage(true); fitStage();
+        });
+
+        // Kéo mép phải ô chấm bằng chuột + Nhấp đúp bật/tắt kéo hết hàng + Hiện thanh nổi khi chọn
+        (function bindDirectBlankInteractions() {
+            var stInner = $('#mm-student-stage-inner');
+            if (!stInner) return;
+            var dragInfo = null;
+            stInner.addEventListener('mousedown', function (e) {
+                var grip = e.target && e.target.closest ? e.target.closest('.mm-blank-grip[data-blank-grip]') : null;
+                if (!grip) return;
+                e.preventDefault();
+                e.stopPropagation();
+                var bid = grip.getAttribute('data-blank-grip');
+                var bl = grip.closest('.vp-blank');
+                if (!bid || !bl) return;
+                var rect = bl.getBoundingClientRect();
+                var curEm = parseFloat(bl.style.width || bl.getAttribute('data-def-w') || '6') || 6;
+                var pxPerEm = Math.max(6, (rect.width || 60) / Math.max(1, curEm));
+                dragInfo = { bid: bid, bl: bl, startX: e.clientX, startEm: curEm, pxPerEm: pxPerEm, curEm: curEm };
+            });
+            document.addEventListener('mousemove', function (e) {
+                if (!dragInfo) return;
+                var dx = e.clientX - dragInfo.startX;
+                var nextEm = Math.max(2.2, Math.min(45, dragInfo.startEm + dx / dragInfo.pxPerEm));
+                dragInfo.curEm = nextEm;
+                dragInfo.bl.classList.remove('vp-blank-end');
+                dragInfo.bl.style.width = nextEm.toFixed(1) + 'em';
+            });
+            document.addEventListener('mouseup', function () {
+                if (!dragInfo) return;
+                state.selectedBlankId = dragInfo.bid;
+                state.blankWidths[dragInfo.bid] = Number(dragInfo.curEm.toFixed(1));
+                dragInfo = null;
+                renderStage(true);
+                fitStage();
+                syncBlankFloatbar();
+            });
+            stInner.addEventListener('dblclick', function (e) {
+                var bl = e.target && e.target.closest ? e.target.closest('.vp-blank[data-blank-id]') : null;
+                if (!bl) return;
+                e.preventDefault();
+                state.selectedBlankId = bl.getAttribute('data-blank-id');
+                resizeSelectedBlank('toggle_end');
+            });
+            stInner.addEventListener('click', function () {
+                setTimeout(syncBlankFloatbar, 0);
+            });
+        })();
 
         $('#mm-export-preset').addEventListener('change', function (e) { switchTab(e.target.value); });
         $('#mm-export-seq').addEventListener('change', function (e) {
@@ -1526,6 +1714,9 @@
                 studentMainTitleFs: Number(state.studentMainTitleFs || 24),
                 studentCardTitleFs: Number(state.studentCardTitleFs || 18.5),
                 blankScale: Number(state.blankScale || 1),
+                blankRowGap: Number(state.blankRowGap || 26),
+                blankStyle: String(state.blankStyle || 'dotted'),
+                blankWeight: String(state.blankWeight || 'medium'),
                 blankWidths: cloneSettingVal(state.blankWidths, {}),
                 blankRows: cloneSettingVal(state.blankRows, {}),
                 lineAligns: cloneSettingVal(state.lineAligns, {}),
@@ -1550,12 +1741,17 @@
             if (cfg.studentMainTitleFs != null) state.studentMainTitleFs = Number(cfg.studentMainTitleFs);
             if (cfg.studentCardTitleFs != null) state.studentCardTitleFs = Number(cfg.studentCardTitleFs);
             if (cfg.blankScale != null) state.blankScale = Number(cfg.blankScale);
+            if (cfg.blankRowGap != null) state.blankRowGap = Number(cfg.blankRowGap);
+            if (cfg.blankStyle) state.blankStyle = String(cfg.blankStyle);
+            if (cfg.blankWeight) state.blankWeight = String(cfg.blankWeight);
+            if (typeof syncBlankGlobalControls === 'function') syncBlankGlobalControls();
             state.blankWidths = cloneSettingVal(cfg.blankWidths, {});
             state.blankRows = cloneSettingVal(cfg.blankRows, {});
             state.lineAligns = cloneSettingVal(cfg.lineAligns, {});
             state.branchImages = cloneSettingVal(cfg.branchImages, {});
             try {
                 if (typeof switchTab === 'function') switchTab(state.tab);
+                if (typeof syncBlankFloatbar === 'function') syncBlankFloatbar();
                 var slSel = $('#mm-slogan-theme-select');
                 if (slSel) slSel.value = state.sloganTheme;
                 var slBar = $('#mm-slogan-bar');

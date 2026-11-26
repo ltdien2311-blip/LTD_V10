@@ -2249,3 +2249,57 @@ details.obs-acc.obs-grp-rose[open] > summary { border-bottom-color: rgba(251,113
     color: #ffffff;
     font-weight: 700;
 }
+
+/* === [MT-32A] Direct Blank Resize Grip & Floating Mini Toolbar === */
+#minmap-modal .vp-blank { position: relative; }
+#minmap-modal .mm-blank-grip {
+    position: absolute;
+    right: -4px;
+    top: -3px;
+    bottom: -3px;
+    width: 9px;
+    cursor: ew-resize;
+    border-radius: 999px;
+    background: #0ea5e9;
+    border: 1.5px solid #ffffff;
+    box-shadow: 0 1px 4px rgba(2, 6, 23, 0.45);
+    z-index: 5;
+}
+#minmap-modal .mm-blank-floatbar {
+    position: fixed;
+    z-index: 120;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 7px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.96);
+    border: 1.5px solid #38bdf8;
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.65);
+}
+#minmap-modal .mm-blank-floatbar.hidden { display: none !important; }
+#minmap-modal .mm-bf-btn {
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #f8fafc;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+#minmap-modal .mm-bf-btn:hover { background: #334155; border-color: #60a5fa; }
+#minmap-modal .mm-bf-btn.accent { background: #0284c7; border-color: #38bdf8; color: #fff; }
+
+/* === [MT-32B] A4 Print Dotted Style, Weight & Writing Row Gap === */
+#minmap-modal .vp-blank,
+#minmap-modal .vp-writing-rule {
+    border-bottom-style: var(--mm-blank-style, dotted) !important;
+    border-bottom-width: var(--mm-blank-border-w, 1.5px) !important;
+    border-bottom-color: var(--mm-blank-color, #334155) !important;
+}
+#minmap-modal .vp-writing-rule {
+    height: var(--mm-blank-row-h, 26px) !important;
+    min-height: var(--mm-blank-row-h, 26px) !important;
+}
