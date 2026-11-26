@@ -43,6 +43,8 @@
         stageBg: 'bg-obsidian',
         swapCols: false,
         font: 'Segoe UI',
+        teacherFont: 'Segoe UI',
+        studentFont: 'Segoe UI',
         teacherBodyFs: 40,
         teacherMainTitleFs: 38,
         teacherCardTitleFs: 30,
@@ -58,9 +60,11 @@
         blankWidths: {},
         blankRows: {},
         lineAligns: {},
+        studentLineAligns: {},
         branchAligns: {},
         selectedTeacherRow: null,
         selectedBranch: 0,
+        studentSelectedBranch: 0,
         branchImages: {},
         teacherSeq: 1,
         studentSeq: 1,
@@ -253,13 +257,13 @@
 
     function getTeacherLineAlignVal(rowIdx, branchIdx, student) {
         if (student) {
-            return state.lineAligns[rowIdx] === 'justify' ? 'justify' : '';
+            return (state.studentLineAligns && state.studentLineAligns[rowIdx] === 'justify') ? 'justify' : '';
         }
         return state.lineAligns[rowIdx] || (state.branchAligns && state.branchAligns[branchIdx]) || 'justify';
     }
     function getTeacherLineAlignClass(rowIdx, branchIdx, student) {
         if (student) {
-            return state.lineAligns[rowIdx] === 'justify' ? ' mm-justify' : '';
+            return (state.studentLineAligns && state.studentLineAligns[rowIdx] === 'justify') ? ' mm-justify' : '';
         }
         var al = getTeacherLineAlignVal(rowIdx, branchIdx, student);
         if (al === 'right') return ' mm-align-right';
@@ -268,12 +272,16 @@
     }
 
     function renderCardHtml(c, idx, student, colorState) {
-        var selCls = idx === state.selectedBranch ? ' vp-selected' : '';
+        var activeSelBranch = student ? (state.studentSelectedBranch || 0) : (state.selectedBranch || 0);
+        var selCls = idx === activeSelBranch ? ' vp-selected' : '';
         var fs = student ? state.studentBodyFs : state.teacherBodyFs;
         var titleFs = student ? Math.round(fs * 1.23) : Math.round(fs * 1.15);
         var parentFs = student ? Math.round(fs * 1.077) : Math.round(fs * 1.075);
         var h = '<section class="vp-box vp-shape' + selCls + '" data-branch="' + (idx + 1) + '" style="--frame:' + FRAMES[idx] + '">';
-        h += '<div class="vp-box-title"' + (c.type === 'mm' ? ' data-row="' + c.rowIdx + '"' : '') + (!student && c.type === 'mm' ? ' contenteditable="true" spellcheck="false" data-prefix="## "' : '') + '>' + renderMathText(c.title) + '</div>';
+        var btAlignVal = (!student && c.type === 'mm' && state.lineAligns[c.rowIdx]) ? state.lineAligns[c.rowIdx] : '';
+        var btAlignCss = btAlignVal ? (' style="text-align:' + btAlignVal + ';text-align-last:' + (btAlignVal === 'right' ? 'right' : (btAlignVal === 'left' ? 'left' : 'auto')) + '"') : '';
+        var btAlignCls = btAlignVal ? (' mm-align-' + btAlignVal) : '';
+        h += '<div class="vp-box-title' + btAlignCls + '"' + btAlignCss + (c.type === 'mm' ? ' data-row="' + c.rowIdx + '"' : '') + (!student && c.type === 'mm' ? ' contenteditable="true" spellcheck="false" data-prefix="## "' : '') + '>' + renderMathText(c.title) + '</div>';
         h += '<div class="vp-lines" style="font-size:' + fs + 'px">';
         if (c.type === 'exam') {
             if (c.stem) {
@@ -289,7 +297,7 @@
                 } else {
                     var jCls0 = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var alVal0 = getTeacherLineAlignVal(l.rowIdx, idx, student);
-                    var alCss0 = alVal0 ? (';text-align:' + alVal0) : '';
+                    var alCss0 = alVal0 ? (';text-align:' + alVal0 + (alVal0 === 'right' ? ';text-align-last:right' : (alVal0 === 'left' ? ';text-align-last:left' : ''))) : '';
                     h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jCls0 + '" data-depth="0" data-row="' + l.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + alCss0 + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
                 }
             });
@@ -301,7 +309,7 @@
                 var jClsN = getTeacherLineAlignClass(l.rowIdx, idx, student);
                 var alValN = getTeacherLineAlignVal(l.rowIdx, idx, student);
                 var plN = (alValN === 'right') ? 0 : (l.depth * 1.1);
-                var alCssN = alValN ? (';text-align:' + alValN) : '';
+                var alCssN = alValN ? (';text-align:' + alValN + (alValN === 'right' ? ';text-align-last:right' : (alValN === 'left' ? ';text-align-last:left' : ''))) : '';
                 h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="padding-left:' + plN + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + alCssN + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
             });
         }
@@ -333,7 +341,8 @@
         if (!container || !ed) return;
         var model = parseInput(ed.value);
         var colorState = { index: 0 };
-        var fontStack = '"' + state.font + '", "Segoe UI", Arial, sans-serif';
+        var activeFont = student ? (state.studentFont || state.font || 'Segoe UI') : (state.teacherFont || state.font || 'Segoe UI');
+        var fontStack = '"' + activeFont + '", "Segoe UI", Arial, sans-serif';
         container.style.fontFamily = fontStack;
         var stEl = $(student ? '#mm-stage-student' : '#mm-stage-teacher');
         if (stEl && stEl.style && typeof stEl.style.setProperty === 'function') {
@@ -368,7 +377,7 @@
 
         $all((student ? '#mm-student-stage-inner' : '#mm-teacher-stage-inner') + ' .vp-box').forEach(function (box) {
             box.addEventListener('click', function () {
-                selectBranch(Number(box.dataset.branch) - 1);
+                selectBranch(Number(box.dataset.branch) - 1, student);
             });
         });
 
@@ -446,9 +455,18 @@
         checkTeacherOverflow();
     }
 
-    function selectBranch(idx) {
-        state.selectedBranch = Math.max(0, Math.min(3, idx));
-        $all('.vp-box').forEach(function (el) {
+    function selectBranch(idx, forStudent) {
+        var targetStu = (typeof forStudent === 'boolean') ? forStudent : (state.tab === 'student');
+        var clamped = Math.max(0, Math.min(3, idx));
+        if (targetStu) {
+            state.studentSelectedBranch = clamped;
+            $all('#mm-student-stage-inner .vp-box').forEach(function (el) {
+                el.classList.toggle('vp-selected', Number(el.dataset.branch) - 1 === state.studentSelectedBranch);
+            });
+            return;
+        }
+        state.selectedBranch = clamped;
+        $all('#mm-teacher-stage-inner .vp-box').forEach(function (el) {
             el.classList.toggle('vp-selected', Number(el.dataset.branch) - 1 === state.selectedBranch);
         });
         var imgCfg = state.branchImages[state.selectedBranch];
@@ -550,6 +568,8 @@
         if (mtInp) mtInp.value = state.tab === 'teacher' ? state.teacherMainTitleFs : state.studentMainTitleFs;
         var ctInp = $('#mm-card-title-fs-input');
         if (ctInp) ctInp.value = state.tab === 'teacher' ? state.teacherCardTitleFs : state.studentCardTitleFs;
+        var fontSel = $('#mm-font-select');
+        if (fontSel) fontSel.value = state.tab === 'teacher' ? (state.teacherFont || state.font || 'Segoe UI') : (state.studentFont || state.font || 'Segoe UI');
         checkTeacherOverflow();
         var seqInp = $('#mm-export-seq');
         if (seqInp) seqInp.value = state.tab === 'teacher' ? state.teacherSeq : state.studentSeq;
@@ -610,7 +630,8 @@
         clone.style.maxHeight = "none";
         clone.style.transform = "none";
         clone.style.margin = "0";
-        var fontStack = "\"" + state.font + "\", \"Segoe UI\", Arial, sans-serif";
+        var expFont = (mode === 'student') ? (state.studentFont || state.font || 'Segoe UI') : (state.teacherFont || state.font || 'Segoe UI');
+        var fontStack = "\"" + expFont + "\", \"Segoe UI\", Arial, sans-serif";
         clone.style.fontFamily = fontStack;
         if (clone.style && typeof clone.style.setProperty === "function") {
             clone.style.setProperty("--mm-stage-font", fontStack);
@@ -839,7 +860,7 @@
             '        </div>',
             '        <div class="mm-tb-side">',
             '          <div class="vp-pill-group" id="mm-teacher-align-box" title="Canh lề cho dòng đang đặt con trỏ (khung mặc định Canh đều)">',
-            '            <span style="font-size:10px;color:#94a3b8">Lề dòng</span>',
+            '            <span id="mm-align-row-lbl" style="font-size:10px;color:#38bdf8;font-weight:800;min-width:34px">Lề</span>',
             '            <button type="button" class="vp-btn-sm" id="mm-align-left" title="Canh trái dòng đang chứa con trỏ">⫷ Trái</button>',
             '            <button type="button" class="vp-btn-sm accent" id="mm-align-justify" title="Canh đều dòng đang chứa con trỏ (mặc định)">⫼ Đều</button>',
             '            <button type="button" class="vp-btn-sm" id="mm-align-right" title="Canh phải dòng đang chứa con trỏ">⫸ Phải</button>',
@@ -1241,16 +1262,29 @@
             r.readAsText(f, 'UTF-8');
         });
 
+        function renderActiveStageOnly() {
+            if (state.tab === 'student') {
+                renderStage(true);
+                fitStage();
+                if (typeof syncBlankFloatbar === 'function') syncBlankFloatbar();
+            } else {
+                renderStage(false);
+                fitStage();
+                checkTeacherOverflow();
+            }
+        }
         $('#mm-font-select').addEventListener('change', function (e) {
-            state.font = e.target.value || 'Segoe UI';
-            renderAll();
+            var val = e.target.value || 'Segoe UI';
+            if (state.tab === 'student') state.studentFont = val;
+            else { state.teacherFont = val; state.font = val; }
+            renderActiveStageOnly();
         });
         function applyBodyFs(val) {
             var n = Math.max(12, Math.min(48, parseInt(val, 10) || 16));
             $('#mm-body-fs-input').value = n;
             if (state.tab === 'teacher') state.teacherBodyFs = n;
             else state.studentBodyFs = n;
-            renderAll();
+            renderActiveStageOnly();
         }
         $('#mm-body-fs-dec').addEventListener('click', function () { applyBodyFs((parseInt($('#mm-body-fs-input').value, 10) || 40) - 1); });
         $('#mm-body-fs-inc').addEventListener('click', function () { applyBodyFs((parseInt($('#mm-body-fs-input').value, 10) || 40) + 1); });
@@ -1261,7 +1295,7 @@
             if (inp) inp.value = n;
             if (state.tab === 'teacher') state.teacherMainTitleFs = n;
             else state.studentMainTitleFs = n;
-            renderAll();
+            renderActiveStageOnly();
         }
         function applyCardTitleFs(val) {
             var n = Math.max(14, Math.min(42, parseInt(val, 10) || 18));
@@ -1269,7 +1303,7 @@
             if (inp) inp.value = n;
             if (state.tab === 'teacher') state.teacherCardTitleFs = n;
             else state.studentCardTitleFs = n;
-            renderAll();
+            renderActiveStageOnly();
         }
         $('#mm-main-title-fs-dec').addEventListener('click', function () { applyMainTitleFs((parseInt($('#mm-main-title-fs-input').value, 10) || 38) - 2); });
         $('#mm-main-title-fs-inc').addEventListener('click', function () { applyMainTitleFs((parseInt($('#mm-main-title-fs-input').value, 10) || 38) + 2); });
@@ -1358,7 +1392,7 @@
                     var er = getEditorCursorRow();
                     if (er !== null) state.selectedTeacherRow = er;
                 } else if (ae && tStage && tStage.contains(ae)) {
-                    var ln = ae.closest ? ae.closest('.vp-line[data-row]') : null;
+                    var ln = ae.closest ? ae.closest('.vp-line[data-row], .vp-box-title[data-row]') : null;
                     if (ln) {
                         var sr = parseInt(ln.getAttribute('data-row'), 10);
                         if (!isNaN(sr)) state.selectedTeacherRow = sr;
@@ -1380,7 +1414,7 @@
             }
             if (tStage) {
                 tStage.addEventListener('focusin', function (e) {
-                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row]') : null;
+                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row], .vp-box-title[data-row]') : null;
                     if (ln) {
                         var r = parseInt(ln.getAttribute('data-row'), 10);
                         if (!isNaN(r)) state.selectedTeacherRow = r;
@@ -1388,7 +1422,7 @@
                     syncAlignButtonsUi();
                 });
                 tStage.addEventListener('mousedown', function (e) {
-                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row]') : null;
+                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row], .vp-box-title[data-row]') : null;
                     if (ln) {
                         var r = parseInt(ln.getAttribute('data-row'), 10);
                         if (!isNaN(r)) state.selectedTeacherRow = r;
@@ -1399,10 +1433,11 @@
             function syncAlignButtonsUi() {
                 var r = state.selectedTeacherRow;
                 var cur = (r !== null && state.lineAligns[r]) ? state.lineAligns[r] : 'justify';
-                var bL = $('#mm-align-left'), bJ = $('#mm-align-justify'), bR = $('#mm-align-right');
+                var bL = $('#mm-align-left'), bJ = $('#mm-align-justify'), bR = $('#mm-align-right'), rLbl = $('#mm-align-row-lbl');
                 if (bL) bL.classList.toggle('accent', cur === 'left');
                 if (bJ) bJ.classList.toggle('accent', cur === 'justify');
                 if (bR) bR.classList.toggle('accent', cur === 'right');
+                if (rLbl) rLbl.textContent = (r !== null && !isNaN(r)) ? ('D.' + (r + 1)) : 'Lề';
             }
             function applyTeacherAlign(al) {
                 var r = getActiveCursorRow();
@@ -1812,7 +1847,9 @@
                 sloganTheme: state.sloganTheme || 'theme-aurora',
                 stageBg: state.stageBg || 'bg-obsidian',
                 swapCols: !!state.swapCols,
-                font: state.font || 'Segoe UI',
+                font: state.teacherFont || state.font || 'Segoe UI',
+                teacherFont: state.teacherFont || state.font || 'Segoe UI',
+                studentFont: state.studentFont || state.font || 'Segoe UI',
                 teacherBodyFs: Number(state.teacherBodyFs || 40),
                 teacherMainTitleFs: Number(state.teacherMainTitleFs || 38),
                 teacherCardTitleFs: Number(state.teacherCardTitleFs || 30),
@@ -1827,6 +1864,7 @@
                 blankWidths: cloneSettingVal(state.blankWidths, {}),
                 blankRows: cloneSettingVal(state.blankRows, {}),
                 lineAligns: cloneSettingVal(state.lineAligns, {}),
+                studentLineAligns: cloneSettingVal(state.studentLineAligns, {}),
                 branchAligns: cloneSettingVal(state.branchAligns, {}),
                 branchImages: cloneSettingVal(state.branchImages, {})
             };
@@ -1840,7 +1878,13 @@
             if (cfg.sloganTheme) state.sloganTheme = String(cfg.sloganTheme);
             if (cfg.stageBg) state.stageBg = String(cfg.stageBg);
             if (typeof cfg.swapCols === 'boolean') state.swapCols = cfg.swapCols;
-            if (cfg.font) state.font = String(cfg.font);
+            if (cfg.font) {
+                state.font = String(cfg.font);
+                if (!cfg.teacherFont) state.teacherFont = String(cfg.font);
+                if (!cfg.studentFont) state.studentFont = String(cfg.font);
+            }
+            if (cfg.teacherFont) { state.teacherFont = String(cfg.teacherFont); state.font = state.teacherFont; }
+            if (cfg.studentFont) state.studentFont = String(cfg.studentFont);
             if (cfg.teacherBodyFs != null) state.teacherBodyFs = Number(cfg.teacherBodyFs);
             if (cfg.teacherMainTitleFs != null) state.teacherMainTitleFs = Number(cfg.teacherMainTitleFs);
             if (cfg.teacherCardTitleFs != null) state.teacherCardTitleFs = Number(cfg.teacherCardTitleFs);
@@ -1856,6 +1900,7 @@
             state.blankWidths = cloneSettingVal(cfg.blankWidths, {});
             state.blankRows = cloneSettingVal(cfg.blankRows, {});
             state.lineAligns = cloneSettingVal(cfg.lineAligns, {});
+            state.studentLineAligns = cloneSettingVal(cfg.studentLineAligns, {});
             state.branchAligns = cloneSettingVal(cfg.branchAligns, {});
             state.branchImages = cloneSettingVal(cfg.branchImages, {});
             try {
@@ -2672,13 +2717,29 @@
                 rowIdx = (ed.value || '').slice(0, pos).split('\n').length - 1;
             }
             if (isNaN(rowIdx) || rowIdx < 0) return;
+            var isStuTarget = (lineEl && lineEl.closest && !!lineEl.closest('#mm-student-stage-inner')) || (!lineEl && state.tab === 'student');
+            if (isStuTarget) {
+                var nextStu = (state.studentLineAligns && state.studentLineAligns[rowIdx] === 'justify') ? '' : 'justify';
+                if (!state.studentLineAligns) state.studentLineAligns = {};
+                state.studentLineAligns[rowIdx] = nextStu;
+                if (lineEl) {
+                    var boxRowStu = lineEl.classList.contains('mm-tf-txt') && lineEl.closest ? (lineEl.closest('.mm-tf-row') || lineEl) : lineEl;
+                    boxRowStu.classList.toggle('mm-justify', nextStu === 'justify');
+                } else {
+                    renderStage(true);
+                    fitStage();
+                }
+                return;
+            }
             var next = state.lineAligns[rowIdx] === 'justify' ? '' : 'justify';
             state.lineAligns[rowIdx] = next;
             if (lineEl) {
                 var boxRow = lineEl.classList.contains('mm-tf-txt') && lineEl.closest ? (lineEl.closest('.mm-tf-row') || lineEl) : lineEl;
                 boxRow.classList.toggle('mm-justify', next === 'justify');
             } else {
-                renderAll();
+                renderStage(false);
+                fitStage();
+                checkTeacherOverflow();
             }
         }
         modalEl.addEventListener('keydown', function (e) {
