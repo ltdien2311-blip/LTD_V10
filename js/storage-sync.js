@@ -4212,9 +4212,10 @@
                         imgChain = imgChain.then(function () {
                             return Promise.all(slice.map(function (sid) {
                                 return loadImageFromDrive(sid).then(function (ir) {
-                                    if (ir && ir.ok && ir.dataUrl && typeof putSlideDataUrlFn === 'function') {
+                                    var imgUrl = (ir && ir.data && ir.data.dataUrl) || (ir && ir.dataUrl) || '';
+                                    if (ir && ir.ok && imgUrl && typeof putSlideDataUrlFn === 'function') {
                                         loadedImgs++;
-                                        return Promise.resolve(putSlideDataUrlFn(sid, ir.dataUrl));
+                                        return Promise.resolve(putSlideDataUrlFn(sid, imgUrl));
                                     }
                                 }).catch(function () {});
                             })).then(function () {
