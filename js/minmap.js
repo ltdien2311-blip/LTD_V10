@@ -300,9 +300,9 @@
                 var lineFw = student ? 400 : (l.depth === 0 ? 700 : 400);
                 var jClsN = getTeacherLineAlignClass(l.rowIdx, idx, student);
                 var alValN = getTeacherLineAlignVal(l.rowIdx, idx, student);
-                var mlN = (alValN === 'right') ? 0 : (l.depth * 1.1);
+                var plN = (alValN === 'right') ? 0 : (l.depth * 1.1);
                 var alCssN = alValN ? (';text-align:' + alValN) : '';
-                h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="margin-left:' + mlN + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + alCssN + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
+                h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="padding-left:' + plN + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + alCssN + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
             });
         }
         h += '</div>';
@@ -439,15 +439,14 @@
             if (warn) warn.classList.add('hidden');
             return false;
         }
-        var over = (st.scrollHeight || 0) > 1082;
+        var over = (st.scrollHeight || 0) > 1082 || (st.scrollWidth || 0) > 1922;
         if (!over && typeof st.getBoundingClientRect === 'function') {
             var stRect = st.getBoundingClientRect();
-            if (stRect && stRect.height > 0) {
-                $all('#mm-stage-teacher .vp-box').forEach(function (box) {
-                    var br = box.getBoundingClientRect ? box.getBoundingClientRect() : null;
-                    if (br && br.bottom > stRect.bottom + 2) over = true;
-                });
-            }
+            $all('#mm-stage-teacher .vp-box').forEach(function (box) {
+                if ((box.scrollWidth || 0) > (box.clientWidth || 0) + 2) over = true;
+                var br = box.getBoundingClientRect ? box.getBoundingClientRect() : null;
+                if (stRect && stRect.height > 0 && br && (br.bottom > stRect.bottom + 2 || br.right > stRect.right + 2)) over = true;
+            });
         }
         st.classList.toggle('is-overflow', over);
         if (warn) warn.classList.toggle('hidden', !over);
@@ -849,16 +848,15 @@
             '              <input type="number" class="vp-num-input" id="mm-card-title-fs-input" min="14" max="42" value="30">',
             '              <button type="button" class="vp-step-btn" id="mm-card-title-fs-inc">+</button>',
             '            </div>',
-            '            <span class="mm-overflow-badge hidden" id="mm-overflow-warn">⚠️ Tràn 1080px</span>',
             '          </div>',
+            '          <span class="mm-overflow-badge hidden" id="mm-overflow-warn" style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;">⚠️ Tràn khung</span>',
             '        </div>',
             '        <div class="mm-tb-side">',
-            '          <div class="vp-pill-group" id="mm-teacher-align-box" title="Canh lề nội dung bản Giáo viên (mặc định Canh đều)">',
-            '            <span style="font-size:10px;color:#94a3b8">Lề</span>',
-            '            <button type="button" class="vp-btn-sm" id="mm-align-left" title="Canh trái dòng/khung đang chọn">⫷ Trái</button>',
-            '            <button type="button" class="vp-btn-sm accent" id="mm-align-justify" title="Canh đều 2 mép (mặc định)">⫼ Đều</button>',
-            '            <button type="button" class="vp-btn-sm" id="mm-align-right" title="Canh phải dòng/khung đang chọn">⫸ Phải</button>',
-            '            <button type="button" class="vp-btn-sm" id="mm-align-scope" title="Chuyển phạm vi: Dòng đang đặt con trỏ hoặc Cả khung đang chọn">Dòng/Khung</button>',
+            '          <div class="vp-pill-group" id="mm-teacher-align-box" title="Canh lề cho dòng đang đặt con trỏ (khung mặc định Canh đều)">',
+            '            <span style="font-size:10px;color:#94a3b8">Lề dòng</span>',
+            '            <button type="button" class="vp-btn-sm" id="mm-align-left" title="Canh trái dòng đang chứa con trỏ">⫷ Trái</button>',
+            '            <button type="button" class="vp-btn-sm accent" id="mm-align-justify" title="Canh đều dòng đang chứa con trỏ (mặc định)">⫼ Đều</button>',
+            '            <button type="button" class="vp-btn-sm" id="mm-align-right" title="Canh phải dòng đang chứa con trỏ">⫸ Phải</button>',
             '          </div>',
             '          <div class="vp-pill-group" id="mm-teacher-img-box" title="Ảnh khung đang chọn">',
             '            <span style="font-size:11px">🖼️</span>',
@@ -1356,8 +1354,39 @@
         });
 
         (function bindTeacherAlignControls() {
-            var alignScopeMode = 'auto'; // 'auto' (dòng đang chọn nếu có, không thì cả khung) | 'branch'
             var tStage = $('#mm-stage-teacher');
+            var ed = $('#markdown-editor');
+            function getEditorCursorRow() {
+                if (!ed || typeof ed.selectionStart !== 'number') return null;
+                var val = String(ed.value || '');
+                return val.slice(0, ed.selectionStart).split('\n').length - 1;
+            }
+            function getActiveCursorRow() {
+                var ae = document.activeElement;
+                if (ae && ae === ed) {
+                    var er = getEditorCursorRow();
+                    if (er !== null) state.selectedTeacherRow = er;
+                } else if (ae && tStage && tStage.contains(ae)) {
+                    var ln = ae.closest ? ae.closest('.vp-line[data-row]') : null;
+                    if (ln) {
+                        var sr = parseInt(ln.getAttribute('data-row'), 10);
+                        if (!isNaN(sr)) state.selectedTeacherRow = sr;
+                    }
+                }
+                if (state.selectedTeacherRow !== null && !isNaN(state.selectedTeacherRow)) {
+                    return state.selectedTeacherRow;
+                }
+                return getEditorCursorRow();
+            }
+            if (ed) {
+                ['keyup', 'mouseup', 'click', 'focus'].forEach(function (evName) {
+                    ed.addEventListener(evName, function () {
+                        var er = getEditorCursorRow();
+                        if (er !== null) state.selectedTeacherRow = er;
+                        syncAlignButtonsUi();
+                    });
+                });
+            }
             if (tStage) {
                 tStage.addEventListener('focusin', function (e) {
                     var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row]') : null;
@@ -1365,63 +1394,48 @@
                         var r = parseInt(ln.getAttribute('data-row'), 10);
                         if (!isNaN(r)) state.selectedTeacherRow = r;
                     }
-                    var box = e.target && e.target.closest ? e.target.closest('.vp-box[data-branch]') : null;
-                    if (box) {
-                        var b = parseInt(box.getAttribute('data-branch'), 10) - 1;
-                        if (!isNaN(b) && b >= 0) state.selectedBranch = b;
+                    syncAlignButtonsUi();
+                });
+                tStage.addEventListener('mousedown', function (e) {
+                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row]') : null;
+                    if (ln) {
+                        var r = parseInt(ln.getAttribute('data-row'), 10);
+                        if (!isNaN(r)) state.selectedTeacherRow = r;
                     }
                     syncAlignButtonsUi();
                 });
-                tStage.addEventListener('click', function (e) {
-                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row]') : null;
-                    state.selectedTeacherRow = ln ? parseInt(ln.getAttribute('data-row'), 10) : null;
-                    syncAlignButtonsUi();
-                });
-            }
-            function currentTargetAlign() {
-                if (alignScopeMode !== 'branch' && state.selectedTeacherRow !== null && state.lineAligns[state.selectedTeacherRow]) {
-                    return state.lineAligns[state.selectedTeacherRow];
-                }
-                return (state.branchAligns && state.branchAligns[state.selectedBranch]) || 'justify';
             }
             function syncAlignButtonsUi() {
-                var cur = currentTargetAlign();
-                var bL = $('#mm-align-left'), bJ = $('#mm-align-justify'), bR = $('#mm-align-right'), bS = $('#mm-align-scope');
+                var r = state.selectedTeacherRow;
+                var cur = (r !== null && state.lineAligns[r]) ? state.lineAligns[r] : 'justify';
+                var bL = $('#mm-align-left'), bJ = $('#mm-align-justify'), bR = $('#mm-align-right');
                 if (bL) bL.classList.toggle('accent', cur === 'left');
                 if (bJ) bJ.classList.toggle('accent', cur === 'justify');
                 if (bR) bR.classList.toggle('accent', cur === 'right');
-                if (bS) bS.textContent = (alignScopeMode === 'branch' || state.selectedTeacherRow === null) ? 'Khung' : 'Dòng';
             }
             function applyTeacherAlign(al) {
-                if (!state.branchAligns || typeof state.branchAligns !== 'object') state.branchAligns = {};
-                if (alignScopeMode !== 'branch' && state.selectedTeacherRow !== null && !isNaN(state.selectedTeacherRow)) {
-                    state.lineAligns[state.selectedTeacherRow] = al;
-                } else {
-                    state.branchAligns[state.selectedBranch] = al;
-                    // Xóa override dòng thuộc khung đang chọn để cả khung đồng bộ ngay
-                    var box = $('#mm-stage-teacher .vp-box[data-branch="' + (state.selectedBranch + 1) + '"]');
-                    if (box) {
-                        Array.prototype.slice.call(box.querySelectorAll('.vp-line[data-row]')).forEach(function (el) {
-                            var r = parseInt(el.getAttribute('data-row'), 10);
-                            if (!isNaN(r)) delete state.lineAligns[r];
-                        });
-                    }
+                var r = getActiveCursorRow();
+                if (r === null || isNaN(r)) {
+                    showToast('Hãy đặt con trỏ vào 1 dòng ở Cột 1 hoặc Slide GV trước khi chỉnh lề.', 'warning');
+                    return;
                 }
+                state.selectedTeacherRow = r;
+                state.lineAligns[r] = al;
                 syncAlignButtonsUi();
+                renderStage(false);
                 renderStage(true);
                 fitStage();
+                checkTeacherOverflow();
+                var lbl = al === 'right' ? 'Canh phải' : (al === 'left' ? 'Canh trái' : 'Canh đều');
+                setStatus('✓ ' + lbl + ' Dòng ' + (r + 1));
             }
-            ['#mm-align-left', '#mm-align-justify', '#mm-align-right', '#mm-align-scope'].forEach(function (sel) {
+            ['#mm-align-left', '#mm-align-justify', '#mm-align-right'].forEach(function (sel) {
                 var el = $(sel);
                 if (el) el.addEventListener('mousedown', function (ev) { ev.preventDefault(); });
             });
             if ($('#mm-align-left')) $('#mm-align-left').addEventListener('click', function () { applyTeacherAlign('left'); });
             if ($('#mm-align-justify')) $('#mm-align-justify').addEventListener('click', function () { applyTeacherAlign('justify'); });
             if ($('#mm-align-right')) $('#mm-align-right').addEventListener('click', function () { applyTeacherAlign('right'); });
-            if ($('#mm-align-scope')) $('#mm-align-scope').addEventListener('click', function () {
-                alignScopeMode = (alignScopeMode === 'branch') ? 'auto' : 'branch';
-                syncAlignButtonsUi();
-            });
             syncAlignButtonsUi();
         })();
 
