@@ -286,14 +286,20 @@
         if (c.type === 'exam') {
             if (c.stem) {
                 var stemTxt = student ? ensureTrailingDot(c.stem) : c.stem;
-                h += '<div class="vp-line" data-depth="0" data-row="' + c.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + ';margin-bottom:0.45em"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix="' + escapeHtml(c.title) + '. "' : '') + '>' + renderMathText(stemTxt) + '</div>';
+                var stemCls = getTeacherLineAlignClass(c.rowIdx, idx, student);
+                var stemVal = getTeacherLineAlignVal(c.rowIdx, idx, student);
+                var stemCss = stemVal ? (';text-align:' + stemVal + (stemVal === 'right' ? ';text-align-last:right' : (stemVal === 'left' ? ';text-align-last:left' : ''))) : '';
+                h += '<div class="vp-line' + stemCls + '" data-depth="0" data-row="' + c.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + ';margin-bottom:0.45em' + stemCss + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix="' + escapeHtml(c.title) + '. "' : '') + '>' + renderMathText(stemTxt) + '</div>';
             }
             c.lines.forEach(function (l, li) {
                 var r = renderInline(l.text, student, colorState, idx, li);
                 if (l.isOpt) {
                     var lblCls = !student ? (l.ok ? 'mm-tf-lbl is-true' : 'mm-tf-lbl is-false') : 'mm-tf-lbl';
                     var pfx = (l.ok ? '*' : '') + l.letter + ') ';
-                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student);
+                    var tfCls = getTeacherLineAlignClass(l.rowIdx, idx, student);
+                    var tfVal = getTeacherLineAlignVal(l.rowIdx, idx, student);
+                    var tfCss = tfVal ? (' style="text-align:' + tfVal + (tfVal === 'right' ? ';text-align-last:right' : (tfVal === 'left' ? ';text-align-last:left' : '')) + '"') : '';
+                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + tfCls + '"' + tfCss + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student);
                 } else {
                     var jCls0 = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var alVal0 = getTeacherLineAlignVal(l.rowIdx, idx, student);
@@ -1392,7 +1398,7 @@
                     var er = getEditorCursorRow();
                     if (er !== null) state.selectedTeacherRow = er;
                 } else if (ae && tStage && tStage.contains(ae)) {
-                    var ln = ae.closest ? ae.closest('.vp-line[data-row], .vp-box-title[data-row]') : null;
+                    var ln = ae.closest ? ae.closest('.vp-line[data-row], .vp-box-title[data-row], .mm-tf-txt[data-row]') : null;
                     if (ln) {
                         var sr = parseInt(ln.getAttribute('data-row'), 10);
                         if (!isNaN(sr)) state.selectedTeacherRow = sr;
@@ -1414,7 +1420,7 @@
             }
             if (tStage) {
                 tStage.addEventListener('focusin', function (e) {
-                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row], .vp-box-title[data-row]') : null;
+                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row], .vp-box-title[data-row], .mm-tf-txt[data-row]') : null;
                     if (ln) {
                         var r = parseInt(ln.getAttribute('data-row'), 10);
                         if (!isNaN(r)) state.selectedTeacherRow = r;
@@ -1422,7 +1428,7 @@
                     syncAlignButtonsUi();
                 });
                 tStage.addEventListener('mousedown', function (e) {
-                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row], .vp-box-title[data-row]') : null;
+                    var ln = e.target && e.target.closest ? e.target.closest('.vp-line[data-row], .vp-box-title[data-row], .mm-tf-txt[data-row]') : null;
                     if (ln) {
                         var r = parseInt(ln.getAttribute('data-row'), 10);
                         if (!isNaN(r)) state.selectedTeacherRow = r;
@@ -1449,7 +1455,6 @@
                 state.lineAligns[r] = al;
                 syncAlignButtonsUi();
                 renderStage(false);
-                renderStage(true);
                 fitStage();
                 checkTeacherOverflow();
                 var lbl = al === 'right' ? 'Canh phải' : (al === 'left' ? 'Canh trái' : 'Canh đều');
@@ -2707,14 +2712,16 @@
         renderDeckDrawer();
 
         function toggleJustifyAtCursor(e) {
-            var target = e.target;
-            var lineEl = target && target.closest ? target.closest('.vp-line[data-row], .mm-tf-txt[data-row]') : null;
+            var target = e && e.target ? e.target : document.activeElement;
+            var lineEl = target && target.closest ? target.closest('.vp-line[data-row], .vp-box-title[data-row], .mm-tf-txt[data-row]') : null;
             var rowIdx = -1;
             if (lineEl) {
                 rowIdx = parseInt(lineEl.getAttribute('data-row'), 10);
-            } else if (target === ed) {
+            } else if (target === ed || document.activeElement === ed) {
                 var pos = ed.selectionStart || 0;
                 rowIdx = (ed.value || '').slice(0, pos).split('\n').length - 1;
+            } else if (state.tab === 'teacher' && state.selectedTeacherRow !== null && !isNaN(state.selectedTeacherRow)) {
+                rowIdx = state.selectedTeacherRow;
             }
             if (isNaN(rowIdx) || rowIdx < 0) return;
             var isStuTarget = (lineEl && lineEl.closest && !!lineEl.closest('#mm-student-stage-inner')) || (!lineEl && state.tab === 'student');
@@ -2731,23 +2738,28 @@
                 }
                 return;
             }
-            var next = state.lineAligns[rowIdx] === 'justify' ? '' : 'justify';
-            state.lineAligns[rowIdx] = next;
-            if (lineEl) {
-                var boxRow = lineEl.classList.contains('mm-tf-txt') && lineEl.closest ? (lineEl.closest('.mm-tf-row') || lineEl) : lineEl;
-                boxRow.classList.toggle('mm-justify', next === 'justify');
-            } else {
-                renderStage(false);
-                fitStage();
-                checkTeacherOverflow();
-            }
+            var curAl = state.lineAligns[rowIdx] || 'justify';
+            var nextAl = (curAl === 'justify') ? 'left' : 'justify';
+            state.selectedTeacherRow = rowIdx;
+            state.lineAligns[rowIdx] = nextAl;
+            renderStage(false);
+            fitStage();
+            checkTeacherOverflow();
+            var bL = $('#mm-align-left'), bJ = $('#mm-align-justify'), bR = $('#mm-align-right'), rLbl = $('#mm-align-row-lbl');
+            if (bL) bL.classList.toggle('accent', nextAl === 'left');
+            if (bJ) bJ.classList.toggle('accent', nextAl === 'justify');
+            if (bR) bR.classList.toggle('accent', nextAl === 'right');
+            if (rLbl) rLbl.textContent = 'D.' + (rowIdx + 1);
+            setStatus('✓ ' + (nextAl === 'justify' ? 'Canh đều' : 'Canh trái') + ' Dòng ' + (rowIdx + 1));
         }
-        modalEl.addEventListener('keydown', function (e) {
+        document.addEventListener('keydown', function (e) {
+            if (!modalEl || modalEl.classList.contains('hidden')) return;
             if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key && e.key.toLowerCase() === 'j') {
                 e.preventDefault();
+                e.stopPropagation();
                 toggleJustifyAtCursor(e);
             }
-        });
+        }, true);
 
         modalEl.addEventListener('paste', function (e) {
             var cb = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData);

@@ -2306,11 +2306,14 @@ details.obs-acc.obs-grp-rose[open] > summary { border-bottom-color: rgba(251,113
 
 /* === [MT-33] Teacher Slide Default Justify & Right/Left Line/Branch Alignment === */
 #minmap-modal .vp-stage.teacher .vp-line.mm-align-justify,
-#minmap-modal .vp-stage.teacher .vp-box-title.mm-align-justify { text-align: justify !important; text-align-last: left !important; }
+#minmap-modal .vp-stage.teacher .vp-box-title.mm-align-justify,
+#minmap-modal .vp-stage.teacher .mm-tf-txt.mm-align-justify { text-align: justify !important; text-align-last: left !important; }
 #minmap-modal .vp-stage.teacher .vp-line.mm-align-right,
-#minmap-modal .vp-stage.teacher .vp-box-title.mm-align-right { text-align: right !important; text-align-last: right !important; }
+#minmap-modal .vp-stage.teacher .vp-box-title.mm-align-right,
+#minmap-modal .vp-stage.teacher .mm-tf-txt.mm-align-right { text-align: right !important; text-align-last: right !important; }
 #minmap-modal .vp-stage.teacher .vp-line.mm-align-left,
-#minmap-modal .vp-stage.teacher .vp-box-title.mm-align-left { text-align: left !important; text-align-last: left !important; }
+#minmap-modal .vp-stage.teacher .vp-box-title.mm-align-left,
+#minmap-modal .vp-stage.teacher .mm-tf-txt.mm-align-left { text-align: left !important; text-align-last: left !important; }
 
 /* === [MT-33-fix] Hide Hidden Pill Groups & Ensure Block Width for Teacher Text Align === */
 #minmap-modal .vp-topbar .vp-pill-group.hidden { display: none !important; }
