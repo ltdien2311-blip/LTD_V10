@@ -4079,7 +4079,7 @@
 
     function pushMinMapDraftsToDrive(decksMeta, getSlideDataUrlFn, onProgress) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
-        var meta = decksMeta && typeof decksMeta === 'object' ? decksMeta : { activeId: '', decks: [] };
+        var meta = Array.isArray(decksMeta) ? { activeId: (decksMeta[0] && decksMeta[0].id) || '', decks: decksMeta } : (decksMeta && typeof decksMeta === 'object' ? decksMeta : { activeId: '', decks: [] });
         var decks = Array.isArray(meta.decks) ? meta.decks : [];
         var allSlides = [];
         decks.forEach(function (dk) {

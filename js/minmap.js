@@ -2197,7 +2197,7 @@
                 if (typeof global.confirm === 'function' && !global.confirm('Đẩy bộ Bài giảng MinMap (ảnh + Markdown + thiết lập) lên Google Drive để soạn tiếp trên máy khác?')) return;
                 var stEl = $('#mm-deck-sync-status');
                 if (stEl) { stEl.style.color = '#93c5fd'; stEl.textContent = '⏳ Đang đẩy ảnh & thiết lập MinMap lên Drive...'; }
-                var meta = loadDecksMeta();
+                var meta = { activeId: _deckState.activeId, decks: loadDecksMeta() };
                 global.GasBridge.pushMinMapDraftsToDrive(meta, getSlideDataUrl, function (p) {
                     if (stEl && p) stEl.textContent = '⏳ Đang đẩy ảnh: ' + (p.done || 0) + '/' + (p.total || 0) + '...';
                 }).then(function (r) {
