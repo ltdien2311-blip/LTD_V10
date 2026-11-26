@@ -2308,3 +2308,11 @@ details.obs-acc.obs-grp-rose[open] > summary { border-bottom-color: rgba(251,113
 #minmap-modal .vp-stage.teacher .vp-line.mm-align-justify { text-align: justify !important; }
 #minmap-modal .vp-stage.teacher .vp-line.mm-align-right { text-align: right !important; }
 #minmap-modal .vp-stage.teacher .vp-line.mm-align-left { text-align: left !important; }
+
+/* === [MT-33-fix] Hide Hidden Pill Groups & Ensure Block Width for Teacher Text Align === */
+#minmap-modal .vp-topbar .vp-pill-group.hidden { display: none !important; }
+#minmap-modal .vp-stage.teacher .vp-line {
+    display: block !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}

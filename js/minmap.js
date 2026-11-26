@@ -251,11 +251,17 @@
         return '<div class="vp-writing-lines">' + rules + '</div>';
     }
 
+    function getTeacherLineAlignVal(rowIdx, branchIdx, student) {
+        if (student) {
+            return state.lineAligns[rowIdx] === 'justify' ? 'justify' : '';
+        }
+        return state.lineAligns[rowIdx] || (state.branchAligns && state.branchAligns[branchIdx]) || 'justify';
+    }
     function getTeacherLineAlignClass(rowIdx, branchIdx, student) {
         if (student) {
             return state.lineAligns[rowIdx] === 'justify' ? ' mm-justify' : '';
         }
-        var al = state.lineAligns[rowIdx] || (state.branchAligns && state.branchAligns[branchIdx]) || 'justify';
+        var al = getTeacherLineAlignVal(rowIdx, branchIdx, student);
         if (al === 'right') return ' mm-align-right';
         if (al === 'left') return ' mm-align-left';
         return ' mm-align-justify';
@@ -267,22 +273,24 @@
         var titleFs = student ? Math.round(fs * 1.23) : Math.round(fs * 1.15);
         var parentFs = student ? Math.round(fs * 1.077) : Math.round(fs * 1.075);
         var h = '<section class="vp-box vp-shape' + selCls + '" data-branch="' + (idx + 1) + '" style="--frame:' + FRAMES[idx] + '">';
-        h += '<div class="vp-box-title"' + (c.type === 'mm' ? ' data-row="' + c.rowIdx + '"' : '') + (!student && c.type === 'mm' ? ' contenteditable="true" data-prefix="## "' : '') + '>' + renderMathText(c.title) + '</div>';
+        h += '<div class="vp-box-title"' + (c.type === 'mm' ? ' data-row="' + c.rowIdx + '"' : '') + (!student && c.type === 'mm' ? ' contenteditable="true" spellcheck="false" data-prefix="## "' : '') + '>' + renderMathText(c.title) + '</div>';
         h += '<div class="vp-lines" style="font-size:' + fs + 'px">';
         if (c.type === 'exam') {
             if (c.stem) {
                 var stemTxt = student ? ensureTrailingDot(c.stem) : c.stem;
-                h += '<div class="vp-line" data-depth="0" data-row="' + c.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + ';margin-bottom:0.45em"' + (!student ? ' contenteditable="true" data-prefix="' + escapeHtml(c.title) + '. "' : '') + '>' + renderMathText(stemTxt) + '</div>';
+                h += '<div class="vp-line" data-depth="0" data-row="' + c.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + ';margin-bottom:0.45em"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix="' + escapeHtml(c.title) + '. "' : '') + '>' + renderMathText(stemTxt) + '</div>';
             }
             c.lines.forEach(function (l, li) {
                 var r = renderInline(l.text, student, colorState, idx, li);
                 if (l.isOpt) {
                     var lblCls = !student ? (l.ok ? 'mm-tf-lbl is-true' : 'mm-tf-lbl is-false') : 'mm-tf-lbl';
                     var pfx = (l.ok ? '*' : '') + l.letter + ') ';
-                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + '"' + (!student ? ' contenteditable="true" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student);
+                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student);
                 } else {
                     var jCls0 = getTeacherLineAlignClass(l.rowIdx, idx, student);
-                    h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jCls0 + '" data-depth="0" data-row="' + l.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + '"' + (!student ? ' contenteditable="true" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
+                    var alVal0 = getTeacherLineAlignVal(l.rowIdx, idx, student);
+                    var alCss0 = alVal0 ? (';text-align:' + alVal0) : '';
+                    h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jCls0 + '" data-depth="0" data-row="' + l.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + alCss0 + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
                 }
             });
         } else {
@@ -291,7 +299,10 @@
                 var lineFs = l.depth === 0 ? parentFs : fs;
                 var lineFw = student ? 400 : (l.depth === 0 ? 700 : 400);
                 var jClsN = getTeacherLineAlignClass(l.rowIdx, idx, student);
-                h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="margin-left:' + (l.depth * 1.1) + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + '"' + (!student ? ' contenteditable="true" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
+                var alValN = getTeacherLineAlignVal(l.rowIdx, idx, student);
+                var mlN = (alValN === 'right') ? 0 : (l.depth * 1.1);
+                var alCssN = alValN ? (';text-align:' + alValN) : '';
+                h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="margin-left:' + mlN + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + alCssN + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
             });
         }
         h += '</div>';
@@ -388,7 +399,7 @@
             });
         }
         if (!student) {
-            $all('#mm-teacher-stage-inner [contenteditable="true"]').forEach(function (el) {
+            $all('#mm-teacher-stage-inner [contenteditable="true" spellcheck="false"]').forEach(function (el) {
                 el.addEventListener('input', function () {
                     syncInlineEdit(Number(el.dataset.row), el.innerText || el.textContent, el.dataset.prefix);
                 });
@@ -1400,6 +1411,10 @@
                 renderStage(true);
                 fitStage();
             }
+            ['#mm-align-left', '#mm-align-justify', '#mm-align-right', '#mm-align-scope'].forEach(function (sel) {
+                var el = $(sel);
+                if (el) el.addEventListener('mousedown', function (ev) { ev.preventDefault(); });
+            });
             if ($('#mm-align-left')) $('#mm-align-left').addEventListener('click', function () { applyTeacherAlign('left'); });
             if ($('#mm-align-justify')) $('#mm-align-justify').addEventListener('click', function () { applyTeacherAlign('justify'); });
             if ($('#mm-align-right')) $('#mm-align-right').addEventListener('click', function () { applyTeacherAlign('right'); });
