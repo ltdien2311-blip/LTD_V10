@@ -13013,11 +13013,7 @@ const COLS = 24;
                 }
                 tps = sortTopicsByOrder(savedTopics.filter(function (t) { return t && t.folderId && subIds[String(t.folderId)] && topicVisible(t); }));
             }
-            if (!tps.length) {
-                if (typeof toast === 'function') toast('Thư mục "' + (folder.name || '') + '" chưa có đề nào để đẩy.');
-                else alert('Thư mục "' + (folder.name || '') + '" chưa có đề nào để đẩy.');
-                return;
-            }
+            /* Always open dialog so user sees clear feedback instead of silent return */
 
             var old = document.getElementById('lib-folder-sync-modal');
             if (old && old.parentNode) old.parentNode.removeChild(old);
@@ -13052,6 +13048,12 @@ const COLS = 24;
             var stEl = dlg.querySelector('#lfs-status');
 
             function renderPushRows(remoteMap) {
+                if (!tps.length) {
+                    listEl.innerHTML = '<div style="padding:14px;border-radius:10px;background:#fef3c7;color:#92400e;font-size:13px;font-weight:700;">Thư mục "' + escFolderSyncHtml(folder.name || '') + '" (và thư mục con) hiện chưa có đề nào trên máy để đẩy lên Drive.</div>';
+                    stEl.style.color = '#b45309'; stEl.style.background = '#fef3c7';
+                    stEl.textContent = 'Chưa có đề nào trong thư mục này trên máy.';
+                    return;
+                }
                 var newCnt = 0, updCnt = 0, skipCnt = 0;
                 listEl.innerHTML = tps.map(function (t) {
                     var rt = remoteMap[String(t.id)];
@@ -13079,7 +13081,10 @@ const COLS = 24;
                         '  <div style="font-size:11px;color:#64748b;">' + qc + ' câu' + (t.isMinMapDeck ? ' · MinMap' : '') + '</div>' +
                         '</div>' + badgeHtml + '</label>';
                 }).join('');
-                stEl.textContent = '✓ Thư mục có ' + tps.length + ' đề · Mới: ' + newCnt + ' · Đã sửa: ' + updCnt + ' · Đã khớp: ' + skipCnt + ' (đã tick sẵn đề cần đẩy).';
+                stEl.style.color = '#1d4ed8'; stEl.style.background = '#eff6ff';
+                stEl.textContent = (newCnt === 0 && updCnt === 0)
+                    ? ('✓ Tất cả ' + tps.length + ' đề đều đã khớp với Drive. Tick chọn bên dưới nếu muốn đẩy ghi đè lại.')
+                    : ('✓ Thư mục có ' + tps.length + ' đề · Mới: ' + newCnt + ' · Đã sửa: ' + updCnt + ' · Đã khớp: ' + skipCnt + ' (đã tick sẵn đề cần đẩy).');
             }
 
             renderPushRows({});
@@ -13112,18 +13117,28 @@ const COLS = 24;
                 btnOk.disabled = true;
                 stEl.style.color = '#1d4ed8'; stEl.style.background = '#eff6ff';
                 stEl.textContent = '⏳ Đang đẩy ' + selectedIds.length + ' đề lên Drive...';
-                gb.pushSelectedTopicsToDrive(selectedIds, function (p) {
-                    if (p) stEl.textContent = '⏳ Đang đẩy: ' + (p.done || 0) + '/' + (p.total || 0) + ' đề...';
-                }).then(function (r) {
-                    btnOk.disabled = false;
-                    if (r && r.ok) {
-                        stEl.style.color = '#047857'; stEl.style.background = '#ecfdf5';
-                        stEl.textContent = '✅ Đã đẩy xong ' + (r.pushedCount || 0) + ' đề (' + (r.imageCount || 0) + ' ảnh mới)!';
-                    } else {
+                try {
+                    gb.pushSelectedTopicsToDrive(selectedIds, function (p) {
+                        if (p) stEl.textContent = '⏳ Đang đẩy: ' + (p.done || 0) + '/' + (p.total || 0) + ' đề...';
+                    }).then(function (r) {
+                        btnOk.disabled = false;
+                        if (r && r.ok) {
+                            stEl.style.color = '#047857'; stEl.style.background = '#ecfdf5';
+                            stEl.textContent = '✅ Đã đẩy xong ' + (r.pushedCount || 0) + ' đề (' + (r.imageCount || 0) + ' ảnh mới)!';
+                        } else {
+                            stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
+                            stEl.textContent = '❌ ' + ((r && r.error) || 'Lỗi đẩy đề lên Drive');
+                        }
+                    }).catch(function (err) {
+                        btnOk.disabled = false;
                         stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
-                        stEl.textContent = '❌ ' + ((r && r.error) || 'Lỗi đẩy đề lên Drive');
-                    }
-                });
+                        stEl.textContent = '❌ Lỗi kết nối khi đẩy: ' + ((err && err.message) || String(err));
+                    });
+                } catch (ex) {
+                    btnOk.disabled = false;
+                    stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
+                    stEl.textContent = '❌ Lỗi thực thi: ' + ((ex && ex.message) || String(ex));
+                }
             };
         }
 
@@ -13230,18 +13245,28 @@ const COLS = 24;
                 btnOk.disabled = true;
                 stEl.style.color = '#1d4ed8'; stEl.style.background = '#eff6ff';
                 stEl.textContent = '⏳ Đang kéo ' + selectedIds.length + ' đề từ Drive...';
-                gb.pullSelectedTopicsFromDrive(selectedIds, function (p) {
-                    if (p) stEl.textContent = '⏳ Đang kéo: ' + (p.done || 0) + '/' + (p.total || 0) + ' đề...';
-                }).then(function (r) {
-                    btnOk.disabled = false;
-                    if (r && r.ok) {
-                        stEl.style.color = '#047857'; stEl.style.background = '#ecfdf5';
-                        stEl.textContent = '✅ Đã kéo xong ' + (r.pulledCount || 0) + ' đề về thư mục!';
-                    } else {
+                try {
+                    gb.pullSelectedTopicsFromDrive(selectedIds, function (p) {
+                        if (p) stEl.textContent = '⏳ Đang kéo: ' + (p.done || 0) + '/' + (p.total || 0) + ' đề...';
+                    }).then(function (r) {
+                        btnOk.disabled = false;
+                        if (r && r.ok) {
+                            stEl.style.color = '#047857'; stEl.style.background = '#ecfdf5';
+                            stEl.textContent = '✅ Đã kéo xong ' + (r.pulledCount || 0) + ' đề về thư mục!';
+                        } else {
+                            stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
+                            stEl.textContent = '❌ ' + ((r && r.error) || 'Lỗi kéo đề từ Drive');
+                        }
+                    }).catch(function (err) {
+                        btnOk.disabled = false;
                         stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
-                        stEl.textContent = '❌ ' + ((r && r.error) || 'Lỗi kéo đề từ Drive');
-                    }
-                });
+                        stEl.textContent = '❌ Lỗi kết nối khi kéo: ' + ((err && err.message) || String(err));
+                    });
+                } catch (ex) {
+                    btnOk.disabled = false;
+                    stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
+                    stEl.textContent = '❌ Lỗi thực thi: ' + ((ex && ex.message) || String(ex));
+                }
             };
         }
 
