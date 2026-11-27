@@ -4638,6 +4638,64 @@
         });
     }
 
+    function deleteMinMapDraftsFromDrive(selectedIds) {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        var list = Array.isArray(selectedIds) ? selectedIds.filter(Boolean) : (selectedIds ? [selectedIds] : []);
+        if (!list.length) return Promise.resolve({ ok: false, error: 'Chưa chọn bài giảng nào để xóa.' });
+        var selMap = {};
+        var selNorm = {};
+        list.forEach(function (v) {
+            var s = String(v || '').trim();
+            if (s) { selMap[s] = true; selNorm[normalizeDeckName(s)] = true; }
+        });
+        return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
+            if (!idxRes || !idxRes.ok || !idxRes.data || !Array.isArray(idxRes.data.decks)) {
+                return { ok: false, error: (idxRes && idxRes.error) || 'Chưa có danh sách bài giảng MinMap trên Drive.' };
+            }
+            var idxData = idxRes.data;
+            var removedMetas = [];
+            var remainingDecks = [];
+            idxData.decks.forEach(function (dk) {
+                if (!dk) return;
+                var idMatch = dk.id && selMap[String(dk.id)];
+                var nameMatch = dk.name && selNorm[normalizeDeckName(dk.name)];
+                if (idMatch || nameMatch) removedMetas.push(dk);
+                else remainingDecks.push(dk);
+            });
+            if (!removedMetas.length) {
+                return { ok: true, deletedCount: 0, remainingDecks: remainingDecks };
+            }
+            var curActive = String(idxData.activeId || '');
+            var keepActive = remainingDecks.some(function (d) { return d && String(d.id) === curActive; });
+            var nextActive = keepActive ? curActive : (remainingDecks[0] ? String(remainingDecks[0].id) : '');
+            return postToPrimaryGas({
+                action: 'saveBankData',
+                keyName: 'MINMAP_DRAFTS_INDEX',
+                data: { activeId: nextActive, decks: remainingDecks, updatedAt: Date.now() }
+            }, 1).then(function (saveRes) {
+                if (!saveRes || !saveRes.ok) {
+                    return { ok: false, error: (saveRes && saveRes.error) || 'Không cập nhật được mục lục MinMap trên Drive.' };
+                }
+                var cleanupJobs = [];
+                removedMetas.forEach(function (dk) {
+                    var parts = Math.max(1, Number(dk.parts || 1));
+                    for (var p = 0; p < parts; p++) {
+                        cleanupJobs.push(postToPrimaryGas({
+                            action: 'saveBankData',
+                            keyName: 'MINMAP_DECK_' + String(dk.id) + '_P' + p,
+                            data: null
+                        }, 1).catch(function () { return null; }));
+                    }
+                });
+                return Promise.all(cleanupJobs).then(function () {
+                    return { ok: true, deletedCount: removedMetas.length, remainingDecks: remainingDecks };
+                });
+            });
+        }).catch(function (err) {
+            return { ok: false, error: (err && err.message) || String(err) };
+        });
+    }
+
     function listMinMapDraftsFromDrive() {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
@@ -4995,6 +5053,7 @@
         pullLibraryFromDrive: pullLibraryFromDrive,
         savePubIndexToDrive: savePubIndexToDrive,
         loadPubIndexFromDrive: loadPubIndexFromDrive,
+        deleteMinMapDraftsFromDrive: deleteMinMapDraftsFromDrive,
         listMinMapDraftsFromDrive: listMinMapDraftsFromDrive,
         normalizeDeckName: normalizeDeckName,
         pushMinMapDraftsToDrive: pushMinMapDraftsToDrive,

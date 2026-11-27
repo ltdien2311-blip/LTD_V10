@@ -2764,12 +2764,15 @@
                 var hsCnt = Number(dk.hsSlideCount != null ? dk.hsSlideCount : 0);
                 var ts = dk.updatedAt ? new Date(dk.updatedAt).toLocaleString('vi-VN') : 'Chưa rõ';
                 var badge = isDup ? '<span style="background:#b45309;color:#fef3c7;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;margin-left:6px;">Trùng tên · Ghi đè</span>' : '<span style="background:#065f46;color:#d1fae5;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;margin-left:6px;">Mới</span>';
-                return '<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:8px;background:#1e293b;border:1px solid #334155;cursor:pointer;">' +
+                return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:#1e293b;border:1px solid #334155;">' +
+                    '<label style="display:flex;align-items:flex-start;gap:10px;flex:1;min-width:0;cursor:pointer;">' +
                     '<input type="checkbox" class="mm-pull-chk" value="' + escapeHtml(dk.id) + '"' + (idx === 0 ? ' checked' : '') + ' style="margin-top:3px;width:16px;height:16px;">' +
                     '<div style="flex:1;min-width:0;">' +
                     '<div style="font-size:13px;font-weight:700;color:#f8fafc;word-break:break-word;">' + escapeHtml(dk.name || 'Bài giảng') + badge + '</div>' +
                     '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">Slide GV: ' + cnt + ' · Phiếu HS: ' + hsCnt + ' · Cập nhật: ' + escapeHtml(ts) + '</div>' +
-                    '</div></label>';
+                    '</div></label>' +
+                    '<button type="button" class="vp-btn-sm mm-pull-del-one" data-deck-id="' + escapeHtml(dk.id) + '" data-deck-name="' + escapeHtml(dk.name || 'Bài giảng') + '" title="Xóa bài giảng này khỏi Drive" style="background:#7f1d1d;border-color:#ef4444;color:#fecaca;flex-shrink:0;">🗑</button>' +
+                    '</div>';
             }).join('');
             dlg.innerHTML = '<div style="width:min(540px,96vw);max-height:84vh;background:#0f172a;border:1px solid #334155;border-radius:14px;padding:16px;color:#f8fafc;display:flex;flex-direction:column;gap:10px;box-shadow:0 24px 60px rgba(0,0,0,.6);">' +
                 '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
@@ -2778,7 +2781,8 @@
                 '<div style="font-size:12px;color:#cbd5e1;">Tick chọn bài giảng cần kéo về soạn tiếp. Các bài giảng tên khác đang soạn trên máy được giữ nguyên 100%.</div>' +
                 '<div style="display:flex;gap:8px;"><button type="button" id="mm-pull-sel-all" class="vp-btn-sm">✓ Chọn tất cả</button><button type="button" id="mm-pull-sel-none" class="vp-btn-sm">Bỏ chọn</button></div>' +
                 '<div id="mm-pull-list" style="display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:48vh;padding-right:4px;">' + rowsHtml + '</div>' +
-                '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">' +
+                '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;margin-top:4px;">' +
+                '<button type="button" id="mm-pull-del-selected" class="vp-btn-sm" style="background:#991b1b;border-color:#ef4444;color:#fee2e2;margin-right:auto;">🗑 Xóa mục đã chọn trên Drive</button>' +
                 '<button type="button" id="mm-pull-cancel" class="vp-btn-sm">Hủy</button>' +
                 '<button type="button" id="mm-pull-confirm" class="vp-btn-sm accent">⬇️ Kéo bài đã chọn</button></div></div>';
             modalEl.appendChild(dlg);
@@ -2791,10 +2795,55 @@
             dlg.querySelector('#mm-pull-sel-none').addEventListener('click', function () {
                 Array.prototype.slice.call(dlg.querySelectorAll('.mm-pull-chk')).forEach(function (c) { c.checked = false; });
             });
+            function handleDeleteDriveDecks(ids, labelText) {
+                if (!ids || !ids.length) {
+                    showToast('Hãy chọn ít nhất 1 bài giảng trên Drive để xóa.', 'warning');
+                    return;
+                }
+                if (!global.GasBridge || typeof global.GasBridge.deleteMinMapDraftsFromDrive !== 'function') {
+                    showToast('Thiếu kết nối xóa Drive (GasBridge.deleteMinMapDraftsFromDrive).', 'error');
+                    return;
+                }
+                var okConfirm = typeof global.confirm === 'function'
+                    ? global.confirm('Xóa ' + labelText + ' khỏi Google Drive?\n(Chỉ xóa bản trên Drive, bài giảng đang lưu trên máy này vẫn được giữ nguyên 100%)')
+                    : true;
+                if (!okConfirm) return;
+                var stEl = $('#mm-deck-sync-status');
+                if (stEl) { stEl.style.color = '#fca5a5'; stEl.textContent = '⏳ Đang xóa khỏi Drive...'; }
+                global.GasBridge.deleteMinMapDraftsFromDrive(ids).then(function (r) {
+                    if (r && r.ok) {
+                        var delCnt = Number(r.deletedCount || ids.length);
+                        if (stEl) { stEl.style.color = '#6ee7b7'; stEl.textContent = '✅ Đã xóa ' + delCnt + ' bài giảng khỏi Drive!'; }
+                        showToast('Đã xóa ' + delCnt + ' bài giảng khỏi Drive!', 'success');
+                        if (Array.isArray(r.remainingDecks) && r.remainingDecks.length) {
+                            openPullPickerDialog(r.remainingDecks);
+                        } else {
+                            closeDlg();
+                        }
+                    } else {
+                        var errMsg = (r && r.error) || 'Không xóa được bài giảng trên Drive';
+                        if (stEl) { stEl.style.color = '#fca5a5'; stEl.textContent = '⚠️ ' + errMsg; }
+                        showToast(errMsg, 'error');
+                    }
+                });
+            }
+            Array.prototype.slice.call(dlg.querySelectorAll('.mm-pull-del-one')).forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var did = btn.getAttribute('data-deck-id');
+                    var dname = btn.getAttribute('data-deck-name') || 'bài giảng này';
+                    if (did) handleDeleteDriveDecks([did], 'bài giảng "' + dname + '"');
+                });
+            });
+            dlg.querySelector('#mm-pull-del-selected').addEventListener('click', function () {
+                var selectedIds = Array.prototype.slice.call(dlg.querySelectorAll('.mm-pull-chk'))
+                    .filter(function (c) { return c.checked; })
+                    .map(function (c) { return c.value || (c.getAttribute ? c.getAttribute('value') : ''); });
+                handleDeleteDriveDecks(selectedIds, selectedIds.length + ' bài giảng đã chọn');
+            });
             dlg.querySelector('#mm-pull-confirm').addEventListener('click', function () {
                 var selectedIds = Array.prototype.slice.call(dlg.querySelectorAll('.mm-pull-chk'))
                     .filter(function (c) { return c.checked; })
-                    .map(function (c) { return c.value; });
+                    .map(function (c) { return c.value || (c.getAttribute ? c.getAttribute('value') : ''); });
                 if (!selectedIds.length) {
                     showToast('Hãy tick chọn ít nhất 1 bài giảng để kéo.', 'warning');
                     return;
