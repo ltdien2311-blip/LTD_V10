@@ -12998,8 +12998,24 @@ const COLS = 24;
             }
             var tps = sortTopicsByOrder(savedTopics.filter(function (t) { return t && t.folderId === folder.id && topicVisible(t); }));
             if (!tps.length) {
-                if (typeof showNotice === 'function') showNotice('Thư mục "' + (folder.name || '') + '" chưa có đề nào để đẩy.', 'warning');
-                else alert('Thư mục này chưa có đề nào để đẩy.');
+                // Fallback: collect topics inside descendant subfolders if current folder has no direct topics
+                var subIds = {};
+                subIds[String(folder.id)] = true;
+                var added = true;
+                while (added) {
+                    added = false;
+                    (Array.isArray(libraryFolders) ? libraryFolders : []).forEach(function (f) {
+                        if (f && f.id && f.parentId && subIds[String(f.parentId)] && !subIds[String(f.id)]) {
+                            subIds[String(f.id)] = true;
+                            added = true;
+                        }
+                    });
+                }
+                tps = sortTopicsByOrder(savedTopics.filter(function (t) { return t && t.folderId && subIds[String(t.folderId)] && topicVisible(t); }));
+            }
+            if (!tps.length) {
+                if (typeof toast === 'function') toast('Thư mục "' + (folder.name || '') + '" chưa có đề nào để đẩy.');
+                else alert('Thư mục "' + (folder.name || '') + '" chưa có đề nào để đẩy.');
                 return;
             }
 
@@ -13059,7 +13075,7 @@ const COLS = 24;
                     return '<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;">' +
                         '<input type="checkbox" class="lfs-chk" value="' + escFolderSyncHtml(t.id) + '"' + (autoChk ? ' checked' : '') + ' style="width:17px;height:17px;">' +
                         '<div style="flex:1;min-width:0;">' +
-                        '  <div style="font-size:13px;font-weight:800;color:#0f172a;word-break:break-word;">' + escFolderSyncHtml(t.title || 'Chưa đặt tên') + '</div>' +
+                        '  <div style="font-size:13px;font-weight:800;color:#0f172a;word-break:break-word;">' + escFolderSyncHtml(t.subtitle || t.title || 'Chưa đặt tên') + '</div>' +
                         '  <div style="font-size:11px;color:#64748b;">' + qc + ' câu' + (t.isMinMapDeck ? ' · MinMap' : '') + '</div>' +
                         '</div>' + badgeHtml + '</label>';
                 }).join('');
@@ -13188,7 +13204,7 @@ const COLS = 24;
                     return '<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;">' +
                         '<input type="checkbox" class="lfs-chk" value="' + escFolderSyncHtml(rt.id) + '"' + (autoChk ? ' checked' : '') + ' style="width:17px;height:17px;">' +
                         '<div style="flex:1;min-width:0;">' +
-                        '  <div style="font-size:13px;font-weight:800;color:#0f172a;word-break:break-word;">' + escFolderSyncHtml(rt.title || 'Đề trên Drive') + '</div>' +
+                        '  <div style="font-size:13px;font-weight:800;color:#0f172a;word-break:break-word;">' + escFolderSyncHtml(rt.subtitle || rt.title || 'Đề trên Drive') + '</div>' +
                         '  <div style="font-size:11px;color:#64748b;">' + (rt.qCount || 0) + ' câu' + (rt.isMinMapDeck ? ' · MinMap' : '') + '</div>' +
                         '</div>' + badgeHtml + '</label>';
                 }).join('');

@@ -3997,7 +3997,38 @@
                 }
                 var outbox = getTopicOutbox().filter(function (oid) { return !idSet[String(oid)]; });
                 saveTopicOutbox(outbox);
-                return { ok: true, pushedCount: selectedTopics.length, imageCount: imgTotal, totalRemoteTopics: rTopics.length };
+                var hasPubChange = selectedTopics.some(function (t) { return t && t.isPublished; });
+                if (!hasPubChange) {
+                    return { ok: true, pushedCount: selectedTopics.length, imageCount: imgTotal, totalRemoteTopics: rTopics.length };
+                }
+                return loadPubIndexFromDrive().catch(function () { return null; }).then(function (pubRes) {
+                    var pData = (pubRes && pubRes.ok && pubRes.data) ? pubRes.data : {};
+                    var pTopics = Array.isArray(pData.topics) ? pData.topics.slice() : [];
+                    var pFolders = Array.isArray(pData.folders) ? pData.folders.slice() : [];
+                    var addPub = buildPubIndexPayload(selectedTopics, localFolders);
+                    var pIdx = {};
+                    pTopics.forEach(function (pt, idx) { if (pt && pt.id) pIdx[String(pt.id)] = idx; });
+                    (addPub.topics || []).forEach(function (nt) {
+                        if (!nt || !nt.id) return;
+                        if (Object.prototype.hasOwnProperty.call(pIdx, String(nt.id))) pTopics[pIdx[String(nt.id)]] = nt;
+                        else { pIdx[String(nt.id)] = pTopics.length; pTopics.push(nt); }
+                    });
+                    var pfIdx = {};
+                    pFolders.forEach(function (pf, idx) { if (pf && pf.id) pfIdx[String(pf.id)] = idx; });
+                    (addPub.folders || []).forEach(function (nf) {
+                        if (!nf || !nf.id) return;
+                        if (Object.prototype.hasOwnProperty.call(pfIdx, String(nf.id))) pFolders[pfIdx[String(nf.id)]] = nf;
+                        else { pfIdx[String(nf.id)] = pFolders.length; pFolders.push(nf); }
+                    });
+                    return savePubIndexToDrive({
+                        version: 'PUB_INDEX_V1',
+                        updatedAt: Date.now(),
+                        topics: pTopics,
+                        folders: pFolders
+                    }).catch(function () { return null; }).then(function () {
+                        return { ok: true, pushedCount: selectedTopics.length, imageCount: imgTotal, totalRemoteTopics: rTopics.length };
+                    });
+                });
             });
         });
     }
