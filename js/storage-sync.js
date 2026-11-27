@@ -2988,6 +2988,19 @@
                 return res;
             });
         },
+        pullLibraryIndexOnlyGas: function () {
+            if (!window.GasBridge || !window.GasBridge.pullLibraryIndexOnly) return Promise.resolve();
+            if (typeof toast === 'function') toast('⏳ Đang kéo Mục lục Thư viện từ Drive...');
+            return window.GasBridge.pullLibraryIndexOnly({ silent: false }).then(function (res) {
+                var ok = !!(res && res.ok);
+                if (typeof toast === 'function') {
+                    toast(ok
+                        ? ('✅ Đã kéo Mục lục Drive: ' + (res.folderCount || 0) + ' thư mục · ' + (res.total || 0) + ' đề (bấm đề nào tải đề đó).')
+                        : ('❌ ' + ((res && res.error) || 'Lỗi kéo Mục lục Drive')));
+                }
+                return res;
+            });
+        },
         pullLibraryFromDriveGas: function () {
             if (!window.GasBridge || !window.GasBridge.pullLibraryFromDrive) return Promise.resolve();
             if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
@@ -4239,6 +4252,83 @@
         try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) { }
     }
 
+    function pullLibraryIndexOnly(opts) {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        return loadLibIndexFromDrive().then(function (res) {
+            if (!res || !res.ok || !res.data) {
+                return { ok: false, error: (res && res.error) || 'Chưa có Mục lục LIB_INDEX_V2 trên Drive.' };
+            }
+            var idxData = res.data;
+            var remoteFolders = Array.isArray(idxData.folders) ? idxData.folders.slice() : [];
+            var remoteList = Array.isArray(idxData.topics) ? idxData.topics : [];
+
+            var curFolders = getGlobalVarSafe('libraryFolders', []);
+            var folderMap = {};
+            var mergedFolders = [];
+            (Array.isArray(curFolders) ? curFolders : []).forEach(function (f) {
+                if (f && f.id) { folderMap[String(f.id)] = f; mergedFolders.push(f); }
+            });
+            remoteFolders.forEach(function (rf) {
+                if (rf && rf.id && !folderMap[String(rf.id)]) {
+                    folderMap[String(rf.id)] = rf;
+                    mergedFolders.push(rf);
+                }
+            });
+            setGlobalVarSafe('libraryFolders', mergedFolders);
+            try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(mergedFolders)); } catch (e) {}
+
+            var curTopics = getGlobalVarSafe('savedTopics', []);
+            var topicMap = {};
+            (Array.isArray(curTopics) ? curTopics : []).forEach(function (lt) {
+                if (lt && lt.id) topicMap[String(lt.id)] = lt;
+            });
+            var addedCount = 0;
+            remoteList.forEach(function (rt) {
+                if (!rt || !rt.id) return;
+                var idStr = String(rt.id);
+                var existing = topicMap[idStr];
+                if (existing) {
+                    var remTs = Number(rt.updatedAt || 0);
+                    var locTs = Number(existing.updatedAt || 0);
+                    existing._remoteUpdatedAt = remTs;
+                    if (remTs >= locTs) {
+                        if (rt.folderId !== undefined) existing.folderId = rt.folderId;
+                        if (rt.title) existing.title = rt.title;
+                        if (rt.subtitle !== undefined) existing.subtitle = rt.subtitle;
+                        if (rt.subject) existing.subject = rt.subject;
+                        if (rt.grade !== undefined) existing.grade = rt.grade;
+                        if (rt.isPublished !== undefined) existing.isPublished = !!rt.isPublished;
+                        if (rt.publishScope) existing.publishScope = rt.publishScope;
+                        if (rt.isMinMapDeck !== undefined) existing.isMinMapDeck = !!rt.isMinMapDeck;
+                        if (rt.minMapRole !== undefined) existing.minMapRole = rt.minMapRole;
+                        if (rt.hsCount !== undefined) existing.hsCount = rt.hsCount;
+                        if (rt.syncHash) existing.syncHash = rt.syncHash;
+                    }
+                    upsertLocalTopicSafe(existing);
+                } else {
+                    var stub = Object.assign({}, rt, {
+                        questions: [],
+                        hsSlideKeys: [],
+                        _remoteUpdatedAt: Number(rt.updatedAt || 0),
+                        _cachedUpdatedAt: 0
+                    });
+                    upsertLocalTopicSafe(stub);
+                    addedCount++;
+                }
+            });
+
+            try { if (typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.dedupeFolders === 'function') window.LTDLibBridge.dedupeFolders(); } catch (e) {}
+            try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) {}
+            try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) {}
+            try { if (typeof window !== 'undefined' && window.CODE83Home && typeof window.CODE83Home.refresh === 'function') window.CODE83Home.refresh(); } catch (e) {}
+
+            if (!(opts && opts.silent) && addedCount > 0 && typeof toast === 'function') {
+                toast('✅ Đã tự động đồng bộ ' + addedCount + ' đề & ' + remoteFolders.length + ' thư mục từ Drive (bấm đề nào tải đề đó).');
+            }
+            return { ok: true, total: remoteList.length, addedCount: addedCount, folderCount: remoteFolders.length };
+        });
+    }
+
     function pullLibraryFromDrive(onProgress) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         return loadLibIndexFromDrive().then(function (res) {
@@ -4810,6 +4900,14 @@
                 var isStuVar = (window.LTDLibBridge && typeof window.LTDLibBridge.getVar === 'function' && window.LTDLibBridge.getVar('isStudentMode') === true);
                 if ((isStuUrl || isStuVar) && isGasEnabled()) {
                     pullPublishedForStudent();
+                } else if (isGasEnabled()) {
+                    var bootFolders = getGlobalVarSafe('libraryFolders', []);
+                    var bootTopics = getGlobalVarSafe('savedTopics', []);
+                    var hasLocalF = Array.isArray(bootFolders) && bootFolders.length > 0;
+                    var hasLocalT = Array.isArray(bootTopics) && bootTopics.length > 0;
+                    if (!hasLocalF && !hasLocalT) {
+                        pullLibraryIndexOnly({ silent: false });
+                    }
                 }
             } catch (e) {}
         }, 450);
@@ -4888,6 +4986,7 @@
         pushSelectedTopicsToDrive: pushSelectedTopicsToDrive,
         pullSelectedTopicsFromDrive: pullSelectedTopicsFromDrive,
         pushLibraryToDrive: pushLibraryToDrive,
+        pullLibraryIndexOnly: pullLibraryIndexOnly,
         pullLibraryFromDrive: pullLibraryFromDrive,
         savePubIndexToDrive: savePubIndexToDrive,
         loadPubIndexFromDrive: loadPubIndexFromDrive,

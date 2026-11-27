@@ -941,6 +941,7 @@ window.SAKB = {
                     <div id="library-teacher-toolbar" class="flex flex-wrap items-center gap-2">
                         <button type="button" id="lib-btn-create-topic" onclick="createTopicInFolder(libCurrentFolderId)" class="px-4 py-2 rounded-xl font-black text-white bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 shadow-sm text-[15px] uppercase">+ Tạo đề thi / Tạo chủ đề mới</button>
                         <button type="button" id="lib-btn-import-files" onclick="pickLibraryFilesThenEdit()" class="px-3.5 py-2 rounded-xl font-black text-white bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 shadow-sm text-[14px]">📂 Thêm danh sách từ file</button>
+                        <button type="button" id="lib-btn-pull-drive" onclick="CloudSync.pullLibraryIndexOnlyGas()" class="px-3.5 py-2 rounded-xl font-black text-white bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 shadow-sm text-[14px]" title="Kéo nhanh Mục lục Thư mục &amp; Tên đề từ Google Drive (tải nhẹ, không nghẽn)">⬇️ Kéo Mục lục Drive</button>
                                             </div>
                 </div>
 
@@ -1170,11 +1171,11 @@ window.SAKB = {
         </div>
     </div>
 
-    <script src="js/storage-sync.js?v=mt37c"></script>
+    <script src="js/storage-sync.js?v=mt39a"></script>
     
     
     
-    <script src="js/quiz-core.js?v=mt37f"></script>
+    <script src="js/quiz-core.js?v=mt39a"></script>
     <script>
         // [CODE28] Điện thoại: thu gọn mục chia điểm mặc định để thấy câu hỏi ngay (bấm tiêu đề để mở rộng)
         (function(){

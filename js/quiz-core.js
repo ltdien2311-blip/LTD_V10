@@ -13589,7 +13589,7 @@ const COLS = 24;
                 head.className = 'flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-gradient-to-r from-purple-100 to-indigo-100';
                 const title = document.createElement('div');
                 title.className = 'flex items-center gap-2 text-[22px] font-black text-purple-900 uppercase';
-                const totalTopics = savedTopics.filter(t => t.subject === subject && (!isStudentMode || isTopicAllowedForStudent(t))).length;
+                const totalTopics = savedTopics.filter(t => t.subject === subject && topicVisible(t)).length;
                 title.innerHTML = `📚 ${_escHtml(libSubjLabel(subject))} <span class="text-[14px] font-black text-purple-700 bg-white/70 px-2.5 py-0.5 rounded-full normal-case">${totalTopics} đề thi</span>`;
                 head.appendChild(title);
                 if (!isStudentMode) {
