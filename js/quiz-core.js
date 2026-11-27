@@ -12982,6 +12982,258 @@ const COLS = 24;
             return card;
         }
 
+        function escFolderSyncHtml(str) {
+            return String(str || '').replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+
+        function openFolderPushDialog(folder) {
+            if (!folder || !folder.id) return;
+            var gb = window.GasBridge;
+            if (!gb || typeof gb.listDriveTopicsInFolder !== 'function' || typeof gb.pushSelectedTopicsToDrive !== 'function') {
+                if (typeof showNotice === 'function') showNotice('Cần kết nối GAS #1 để đẩy đề lên Drive.', 'error');
+                else alert('Cần kết nối GAS #1 để đẩy đề lên Drive.');
+                return;
+            }
+            var tps = sortTopicsByOrder(savedTopics.filter(function (t) { return t && t.folderId === folder.id && topicVisible(t); }));
+            if (!tps.length) {
+                if (typeof showNotice === 'function') showNotice('Thư mục "' + (folder.name || '') + '" chưa có đề nào để đẩy.', 'warning');
+                else alert('Thư mục này chưa có đề nào để đẩy.');
+                return;
+            }
+
+            var old = document.getElementById('lib-folder-sync-modal');
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+
+            var dlg = document.createElement('div');
+            dlg.id = 'lib-folder-sync-modal';
+            dlg.style.cssText = 'position:fixed;inset:0;z-index:10060;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:16px;';
+            dlg.innerHTML =
+                '<div style="width:min(580px,96vw);max-height:86vh;background:#fff;border-radius:16px;padding:18px;box-shadow:0 24px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:10px;color:#0f172a;">' +
+                '  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+                '    <div style="font-size:16px;font-weight:900;color:#0369a1;">☁️ Đẩy đề lên Drive · ' + escFolderSyncHtml(folder.name || 'Thư mục') + '</div>' +
+                '    <button type="button" id="lfs-close-x" style="padding:4px 10px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;font-weight:800;cursor:pointer;">✕</button>' +
+                '  </div>' +
+                '  <div id="lfs-status" style="font-size:12px;font-weight:700;color:#1d4ed8;background:#eff6ff;padding:8px 10px;border-radius:8px;">⏳ Đang đối chiếu với Google Drive...</div>' +
+                '  <div style="display:flex;gap:8px;">' +
+                '    <button type="button" id="lfs-sel-all" style="padding:5px 10px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;font-size:12px;font-weight:700;cursor:pointer;">✓ Chọn tất cả</button>' +
+                '    <button type="button" id="lfs-sel-none" style="padding:5px 10px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;font-size:12px;font-weight:700;cursor:pointer;">Bỏ chọn</button>' +
+                '  </div>' +
+                '  <div id="lfs-list" style="display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:46vh;padding-right:4px;"></div>' +
+                '  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">' +
+                '    <button type="button" id="lfs-cancel" style="padding:8px 14px;border-radius:10px;border:1px solid #cbd5e1;background:#f1f5f9;font-weight:800;cursor:pointer;">Đóng</button>' +
+                '    <button type="button" id="lfs-confirm" style="padding:8px 16px;border-radius:10px;border:none;background:linear-gradient(90deg,#0284c7,#2563eb);color:#fff;font-weight:800;cursor:pointer;">☁️ Đẩy các đề đã chọn</button>' +
+                '  </div>' +
+                '</div>';
+            document.body.appendChild(dlg);
+
+            function closeDlg() { if (dlg && dlg.parentNode) dlg.parentNode.removeChild(dlg); }
+            dlg.querySelector('#lfs-close-x').onclick = closeDlg;
+            dlg.querySelector('#lfs-cancel').onclick = closeDlg;
+
+            var listEl = dlg.querySelector('#lfs-list');
+            var stEl = dlg.querySelector('#lfs-status');
+
+            function renderPushRows(remoteMap) {
+                var newCnt = 0, updCnt = 0, skipCnt = 0;
+                listEl.innerHTML = tps.map(function (t) {
+                    var rt = remoteMap[String(t.id)];
+                    var localHash = typeof gb.computeTopicSyncHash === 'function' ? gb.computeTopicSyncHash(t) : '';
+                    var badgeHtml = '';
+                    var autoChk = false;
+                    if (!rt) {
+                        newCnt++;
+                        autoChk = true;
+                        badgeHtml = '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;">Mới</span>';
+                    } else if (!rt.syncHash || !localHash || rt.syncHash !== localHash) {
+                        updCnt++;
+                        autoChk = true;
+                        badgeHtml = '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;">Đã sửa</span>';
+                    } else {
+                        skipCnt++;
+                        autoChk = false;
+                        badgeHtml = '<span style="background:#e2e8f0;color:#475569;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;">Đã khớp</span>';
+                    }
+                    var qc = Array.isArray(t.questions) ? t.questions.length : 0;
+                    return '<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;">' +
+                        '<input type="checkbox" class="lfs-chk" value="' + escFolderSyncHtml(t.id) + '"' + (autoChk ? ' checked' : '') + ' style="width:17px;height:17px;">' +
+                        '<div style="flex:1;min-width:0;">' +
+                        '  <div style="font-size:13px;font-weight:800;color:#0f172a;word-break:break-word;">' + escFolderSyncHtml(t.title || 'Chưa đặt tên') + '</div>' +
+                        '  <div style="font-size:11px;color:#64748b;">' + qc + ' câu' + (t.isMinMapDeck ? ' · MinMap' : '') + '</div>' +
+                        '</div>' + badgeHtml + '</label>';
+                }).join('');
+                stEl.textContent = '✓ Thư mục có ' + tps.length + ' đề · Mới: ' + newCnt + ' · Đã sửa: ' + updCnt + ' · Đã khớp: ' + skipCnt + ' (đã tick sẵn đề cần đẩy).';
+            }
+
+            renderPushRows({});
+            gb.listDriveTopicsInFolder(folder.id).then(function (res) {
+                var map = {};
+                if (res && res.ok && Array.isArray(res.topics)) {
+                    res.topics.forEach(function (rt) { if (rt && rt.id) map[String(rt.id)] = rt; });
+                    renderPushRows(map);
+                } else {
+                    stEl.textContent = '✓ Sẵn sàng chọn đề đẩy lên Drive (mục lục Drive chưa có dữ liệu hoặc ngoại tuyến).';
+                }
+            });
+
+            dlg.querySelector('#lfs-sel-all').onclick = function () {
+                Array.prototype.slice.call(dlg.querySelectorAll('.lfs-chk')).forEach(function (c) { c.checked = true; });
+            };
+            dlg.querySelector('#lfs-sel-none').onclick = function () {
+                Array.prototype.slice.call(dlg.querySelectorAll('.lfs-chk')).forEach(function (c) { c.checked = false; });
+            };
+            dlg.querySelector('#lfs-confirm').onclick = function () {
+                var selectedIds = Array.prototype.slice.call(dlg.querySelectorAll('.lfs-chk'))
+                    .filter(function (c) { return c.checked; })
+                    .map(function (c) { return c.value; });
+                if (!selectedIds.length) {
+                    stEl.style.color = '#b45309'; stEl.style.background = '#fef3c7';
+                    stEl.textContent = '⚠️ Hãy tick chọn ít nhất 1 đề để đẩy lên Drive.';
+                    return;
+                }
+                var btnOk = dlg.querySelector('#lfs-confirm');
+                btnOk.disabled = true;
+                stEl.style.color = '#1d4ed8'; stEl.style.background = '#eff6ff';
+                stEl.textContent = '⏳ Đang đẩy ' + selectedIds.length + ' đề lên Drive...';
+                gb.pushSelectedTopicsToDrive(selectedIds, function (p) {
+                    if (p) stEl.textContent = '⏳ Đang đẩy: ' + (p.done || 0) + '/' + (p.total || 0) + ' đề...';
+                }).then(function (r) {
+                    btnOk.disabled = false;
+                    if (r && r.ok) {
+                        stEl.style.color = '#047857'; stEl.style.background = '#ecfdf5';
+                        stEl.textContent = '✅ Đã đẩy xong ' + (r.pushedCount || 0) + ' đề (' + (r.imageCount || 0) + ' ảnh mới)!';
+                    } else {
+                        stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
+                        stEl.textContent = '❌ ' + ((r && r.error) || 'Lỗi đẩy đề lên Drive');
+                    }
+                });
+            };
+        }
+
+        function openFolderPullDialog(folder) {
+            if (!folder || !folder.id) return;
+            var gb = window.GasBridge;
+            if (!gb || typeof gb.listDriveTopicsInFolder !== 'function' || typeof gb.pullSelectedTopicsFromDrive !== 'function') {
+                if (typeof showNotice === 'function') showNotice('Cần kết nối GAS #1 để kéo đề từ Drive.', 'error');
+                else alert('Cần kết nối GAS #1 để kéo đề từ Drive.');
+                return;
+            }
+            var old = document.getElementById('lib-folder-sync-modal');
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+
+            var dlg = document.createElement('div');
+            dlg.id = 'lib-folder-sync-modal';
+            dlg.style.cssText = 'position:fixed;inset:0;z-index:10060;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:16px;';
+            dlg.innerHTML =
+                '<div style="width:min(580px,96vw);max-height:86vh;background:#fff;border-radius:16px;padding:18px;box-shadow:0 24px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:10px;color:#0f172a;">' +
+                '  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+                '    <div style="font-size:16px;font-weight:900;color:#0f766e;">⬇️ Kéo đề từ Drive · ' + escFolderSyncHtml(folder.name || 'Thư mục') + '</div>' +
+                '    <button type="button" id="lfs-close-x" style="padding:4px 10px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;font-weight:800;cursor:pointer;">✕</button>' +
+                '  </div>' +
+                '  <div id="lfs-status" style="font-size:12px;font-weight:700;color:#1d4ed8;background:#eff6ff;padding:8px 10px;border-radius:8px;">⏳ Đang tải danh sách đề trên Drive...</div>' +
+                '  <div style="display:flex;gap:8px;">' +
+                '    <button type="button" id="lfs-sel-all" style="padding:5px 10px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;font-size:12px;font-weight:700;cursor:pointer;">✓ Chọn tất cả</button>' +
+                '    <button type="button" id="lfs-sel-none" style="padding:5px 10px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;font-size:12px;font-weight:700;cursor:pointer;">Bỏ chọn</button>' +
+                '  </div>' +
+                '  <div id="lfs-list" style="display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:46vh;padding-right:4px;"></div>' +
+                '  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">' +
+                '    <button type="button" id="lfs-cancel" style="padding:8px 14px;border-radius:10px;border:1px solid #cbd5e1;background:#f1f5f9;font-weight:800;cursor:pointer;">Đóng</button>' +
+                '    <button type="button" id="lfs-confirm" style="padding:8px 16px;border-radius:10px;border:none;background:linear-gradient(90deg,#0d9488,#059669);color:#fff;font-weight:800;cursor:pointer;">⬇️ Kéo các đề đã chọn</button>' +
+                '  </div>' +
+                '</div>';
+            document.body.appendChild(dlg);
+
+            function closeDlg() { if (dlg && dlg.parentNode) dlg.parentNode.removeChild(dlg); }
+            dlg.querySelector('#lfs-close-x').onclick = closeDlg;
+            dlg.querySelector('#lfs-cancel').onclick = closeDlg;
+
+            var listEl = dlg.querySelector('#lfs-list');
+            var stEl = dlg.querySelector('#lfs-status');
+
+            var localMap = {};
+            savedTopics.forEach(function (lt) { if (lt && lt.id) localMap[String(lt.id)] = lt; });
+
+            gb.listDriveTopicsInFolder(folder.id).then(function (res) {
+                if (!res || !res.ok) {
+                    stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
+                    stEl.textContent = '❌ ' + ((res && res.error) || 'Không tải được danh sách từ Drive.');
+                    return;
+                }
+                var rList = Array.isArray(res.topics) ? res.topics : [];
+                if (!rList.length) {
+                    stEl.style.color = '#b45309'; stEl.style.background = '#fef3c7';
+                    stEl.textContent = 'Thư mục này chưa có đề nào trên Google Drive.';
+                    return;
+                }
+                var newCnt = 0, updCnt = 0, sameCnt = 0;
+                listEl.innerHTML = rList.map(function (rt) {
+                    var lt = localMap[String(rt.id)];
+                    var localHash = (lt && typeof gb.computeTopicSyncHash === 'function') ? gb.computeTopicSyncHash(lt) : '';
+                    var badgeHtml = '';
+                    var autoChk = false;
+                    if (!lt) {
+                        newCnt++;
+                        autoChk = true;
+                        badgeHtml = '<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;">Mới trên Drive</span>';
+                    } else if (!rt.syncHash || !localHash || rt.syncHash !== localHash) {
+                        updCnt++;
+                        autoChk = true;
+                        badgeHtml = '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;">Cập nhật mới</span>';
+                    } else {
+                        sameCnt++;
+                        autoChk = false;
+                        badgeHtml = '<span style="background:#e2e8f0;color:#475569;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:800;">Đã có (khớp)</span>';
+                    }
+                    return '<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;">' +
+                        '<input type="checkbox" class="lfs-chk" value="' + escFolderSyncHtml(rt.id) + '"' + (autoChk ? ' checked' : '') + ' style="width:17px;height:17px;">' +
+                        '<div style="flex:1;min-width:0;">' +
+                        '  <div style="font-size:13px;font-weight:800;color:#0f172a;word-break:break-word;">' + escFolderSyncHtml(rt.title || 'Đề trên Drive') + '</div>' +
+                        '  <div style="font-size:11px;color:#64748b;">' + (rt.qCount || 0) + ' câu' + (rt.isMinMapDeck ? ' · MinMap' : '') + '</div>' +
+                        '</div>' + badgeHtml + '</label>';
+                }).join('');
+                stEl.textContent = '✓ Có ' + rList.length + ' đề trên Drive · Mới: ' + newCnt + ' · Cập nhật mới: ' + updCnt + ' · Đã có (khớp): ' + sameCnt + '.';
+            });
+
+            dlg.querySelector('#lfs-sel-all').onclick = function () {
+                Array.prototype.slice.call(dlg.querySelectorAll('.lfs-chk')).forEach(function (c) { c.checked = true; });
+            };
+            dlg.querySelector('#lfs-sel-none').onclick = function () {
+                Array.prototype.slice.call(dlg.querySelectorAll('.lfs-chk')).forEach(function (c) { c.checked = false; });
+            };
+            dlg.querySelector('#lfs-confirm').onclick = function () {
+                var selectedIds = Array.prototype.slice.call(dlg.querySelectorAll('.lfs-chk'))
+                    .filter(function (c) { return c.checked; })
+                    .map(function (c) { return c.value; });
+                if (!selectedIds.length) {
+                    stEl.style.color = '#b45309'; stEl.style.background = '#fef3c7';
+                    stEl.textContent = '⚠️ Hãy tick chọn ít nhất 1 đề để kéo về máy.';
+                    return;
+                }
+                var btnOk = dlg.querySelector('#lfs-confirm');
+                btnOk.disabled = true;
+                stEl.style.color = '#1d4ed8'; stEl.style.background = '#eff6ff';
+                stEl.textContent = '⏳ Đang kéo ' + selectedIds.length + ' đề từ Drive...';
+                gb.pullSelectedTopicsFromDrive(selectedIds, function (p) {
+                    if (p) stEl.textContent = '⏳ Đang kéo: ' + (p.done || 0) + '/' + (p.total || 0) + ' đề...';
+                }).then(function (r) {
+                    btnOk.disabled = false;
+                    if (r && r.ok) {
+                        stEl.style.color = '#047857'; stEl.style.background = '#ecfdf5';
+                        stEl.textContent = '✅ Đã kéo xong ' + (r.pulledCount || 0) + ' đề về thư mục!';
+                    } else {
+                        stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
+                        stEl.textContent = '❌ ' + ((r && r.error) || 'Lỗi kéo đề từ Drive');
+                    }
+                });
+            };
+        }
+
+        window.LTDFolderSync = {
+            openFolderPushDialog: openFolderPushDialog,
+            openFolderPullDialog: openFolderPullDialog
+        };
+
         function renderLibraryList() {
             try { applyLibPos(); } catch (e) { }   // [CODE120] áp lại vị trí đã di chuyển
             const container = document.getElementById('library-list-container');
@@ -13247,6 +13499,8 @@ const COLS = 24;
                     mkBtn('📁 TẠO THƯ MỤC', 'text-white bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 shadow-sm uppercase', () => openCreateFolder(folder.subject, folder.id));
                     mkBtn('⬆ Lên', 'lib-move-btn text-slate-700 bg-white hover:bg-slate-100 border border-slate-300', () => moveLibFolder(folder.id, -1));
                     mkBtn('⬇ Xuống', 'lib-move-btn text-slate-700 bg-white hover:bg-slate-100 border border-slate-300', () => moveLibFolder(folder.id, 1));
+                    mkBtn('☁️ Đẩy đề', 'text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-300', () => openFolderPushDialog(folder));
+                    mkBtn('⬇️ Kéo đề', 'text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-300', () => openFolderPullDialog(folder));
                     mkBtn('✏️ Đổi tên', 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300', () => openRenameFolder(folder.id));
                     mkBtn('🗑 Xóa thư mục', 'text-red-600 bg-red-50 hover:bg-red-100 border border-red-200', () => deleteLibFolder(folder.id));
                 }

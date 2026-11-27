@@ -292,7 +292,7 @@ window.SAKB = {
                 <button id="btn-minmap-sidebar" type="button" onclick="if (window.LTDMinMap) LTDMinMap.open()" title="Soạn và xuất Sơ đồ tư duy 1920x1080 &amp; A4 Cloze" class="side-btn teacher-only-btn" style="background:linear-gradient(135deg,#059669,#0d9488);color:#fff">
                     🗺️ MINMAP
                 </button>
-                <div class="teacher-only-btn grid grid-cols-2 gap-1.5">
+                <div id="main-drive-btns-wrap" class="teacher-only-btn grid grid-cols-2 gap-1.5 hidden" style="display:none !important">
                     <button id="btn-main-push-drive" type="button" onclick="window.CloudSync && CloudSync.quickPushDriveMain && CloudSync.quickPushDriveMain()" title="Đẩy Thư viện &amp; MinMap lên Google Drive (GAS #1)" class="side-btn" style="background:linear-gradient(135deg,#0284c7,#2563eb);color:#fff;font-size:12px;padding:8px 6px">
                         ☁️ ĐẨY DRIVE
                     </button>
@@ -1170,11 +1170,11 @@ window.SAKB = {
         </div>
     </div>
 
-    <script src="js/storage-sync.js?v=mt36b"></script>
+    <script src="js/storage-sync.js?v=mt37a"></script>
     
     
     
-    <script src="js/quiz-core.js?v=mt30a"></script>
+    <script src="js/quiz-core.js?v=mt37b"></script>
     <script>
         // [CODE28] Điện thoại: thu gọn mục chia điểm mặc định để thấy câu hỏi ngay (bấm tiêu đề để mở rộng)
         (function(){

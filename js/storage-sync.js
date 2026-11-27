@@ -2935,11 +2935,14 @@
                 if (st && prog) st.textContent = '⏳ Đang đẩy: ' + (prog.done || 0) + '/' + (prog.total || 0) + ' đề...';
             }).then(function (res) {
                 var ok = !!(res && res.ok);
+                var summaryMsg = ok
+                    ? ('✅ Đẩy xong · Mới: ' + (res.newCount || 0) + ' · Cập nhật: ' + (res.updatedCount || 0) + ' · Bỏ qua: ' + (res.skippedCount || 0) + ' · Dọn: ' + (res.prunedCount || 0))
+                    : ('❌ ' + ((res && res.error) || 'Lỗi đẩy Drive'));
                 if (st) {
                     st.style.color = ok ? '#047857' : '#b91c1c';
-                    st.textContent = ok ? ('✅ Đã đẩy ' + (res.topicCount || 0) + ' đề & ' + (res.imageCount || 0) + ' ảnh') : ('❌ ' + ((res && res.error) || 'Lỗi đẩy Drive'));
+                    st.textContent = summaryMsg;
                 }
-                if (typeof toast === 'function') toast(ok ? '✅ Đã đẩy Thư viện & MinMap lên Drive!' : ('❌ ' + ((res && res.error) || 'Lỗi đẩy Drive')));
+                if (typeof toast === 'function') toast(summaryMsg);
                 return res;
             });
         },
@@ -2958,7 +2961,7 @@
                 var ok = !!(res && res.ok);
                 if (st) {
                     st.style.color = ok ? '#047857' : '#b91c1c';
-                    st.textContent = ok ? ('✅ Đã kéo ' + (res.pulledCount || 0) + ' đề mới/cập nhật') : ('❌ ' + ((res && res.error) || 'Lỗi kéo Drive'));
+                    st.textContent = ok ? ('✅ Kéo xong · Tải mới: ' + (res.pulledCount || 0) + ' · Bỏ qua (có sẵn): ' + (res.reusedCount || 0)) : ('❌ ' + ((res && res.error) || 'Lỗi kéo Drive'));
                 }
                 if (typeof toast === 'function') toast(ok ? '✅ Đã kéo Thư viện & MinMap từ Drive!' : ('❌ ' + ((res && res.error) || 'Lỗi kéo Drive')));
                 return res;
@@ -3891,6 +3894,175 @@
         return new Promise(function (resolve) { setTimeout(resolve, ms); });
     }
 
+
+    function listDriveTopicsInFolder(folderId) {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        var targetFid = String(folderId || '');
+        return loadLibIndexFromDrive().then(function (res) {
+            if (!res || !res.ok || !res.data) {
+                return { ok: false, error: (res && res.error) || 'Chưa có Mục lục LIB_INDEX_V2 trên Drive.' };
+            }
+            var idxData = res.data;
+            var allTopics = Array.isArray(idxData.topics) ? idxData.topics : [];
+            var matched = allTopics.filter(function (rt) {
+                return rt && rt.id && String(rt.folderId || '') === targetFid;
+            });
+            return {
+                ok: true,
+                topics: matched,
+                folders: Array.isArray(idxData.folders) ? idxData.folders : [],
+                updatedAt: idxData.updatedAt || 0
+            };
+        }).catch(function (err) {
+            return { ok: false, error: (err && err.message) || String(err) };
+        });
+    }
+
+    function pushSelectedTopicsToDrive(topicIds, onProgress) {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        var idSet = {};
+        (Array.isArray(topicIds) ? topicIds : []).forEach(function (id) { if (id) idSet[String(id)] = true; });
+        var allLocal = getGlobalVarSafe('savedTopics', []);
+        var selectedTopics = (Array.isArray(allLocal) ? allLocal : []).filter(function (t) { return t && t.id && idSet[String(t.id)]; });
+        if (!selectedTopics.length) return Promise.resolve({ ok: false, error: 'Chưa chọn đề nào để đẩy lên Drive.' });
+
+        var localFolders = getGlobalVarSafe('libraryFolders', []);
+        if ((!localFolders || !localFolders.length) && typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.getFolders === 'function') localFolders = window.LTDLibBridge.getFolders();
+
+        var SAFE_BATCH = 5;
+        var total = selectedTopics.length;
+        var done = 0;
+        var imgTotal = 0;
+        var chain = Promise.resolve();
+
+        for (var start = 0; start < total; start += SAFE_BATCH) {
+            (function (slice, isFirst) {
+                chain = chain.then(function () {
+                    return (isFirst ? Promise.resolve() : sleepMs(150)).then(function () {
+                        return Promise.all(slice.map(pushSingleTopicWithImages)).then(function (results) {
+                            results.forEach(function (r) { if (r && r.ok) imgTotal += (r.images || 0); });
+                            done += slice.length;
+                            if (typeof onProgress === 'function') {
+                                try { onProgress({ phase: 'topics', done: done, total: total }); } catch (e) { }
+                            }
+                        });
+                    });
+                });
+            })(selectedTopics.slice(start, start + SAFE_BATCH), start === 0);
+        }
+
+        return chain.then(function () {
+            return loadLibIndexFromDrive().catch(function () { return null; });
+        }).then(function (remoteRes) {
+            var rData = (remoteRes && remoteRes.ok && remoteRes.data) ? remoteRes.data : {};
+            var rTopics = Array.isArray(rData.topics) ? rData.topics.slice() : [];
+            var rFolders = Array.isArray(rData.folders) ? rData.folders.slice() : [];
+            var rDeleted = Array.isArray(rData.deletedTopicIds) ? rData.deletedTopicIds.slice() : [];
+
+            var lightNew = buildLightLibIndex(selectedTopics, localFolders, []).topics;
+            var rTopicIdx = {};
+            rTopics.forEach(function (rt, idx) { if (rt && rt.id) rTopicIdx[String(rt.id)] = idx; });
+            lightNew.forEach(function (lt) {
+                if (!lt || !lt.id) return;
+                if (Object.prototype.hasOwnProperty.call(rTopicIdx, lt.id)) {
+                    rTopics[rTopicIdx[lt.id]] = lt;
+                } else {
+                    rTopicIdx[lt.id] = rTopics.length;
+                    rTopics.push(lt);
+                }
+            });
+
+            var rFolderMap = {};
+            rFolders.forEach(function (f, idx) { if (f && f.id) rFolderMap[String(f.id)] = idx; });
+            (Array.isArray(localFolders) ? localFolders : []).forEach(function (lf) {
+                if (!lf || !lf.id) return;
+                if (Object.prototype.hasOwnProperty.call(rFolderMap, String(lf.id))) {
+                    rFolders[rFolderMap[String(lf.id)]] = lf;
+                } else {
+                    rFolderMap[String(lf.id)] = rFolders.length;
+                    rFolders.push(lf);
+                }
+            });
+
+            var mergedIndex = {
+                version: 'LIB_INDEX_V2',
+                updatedAt: Date.now(),
+                topics: rTopics,
+                folders: rFolders,
+                deletedTopicIds: rDeleted
+            };
+            return saveLibIndexToDrive(mergedIndex).then(function (idxRes) {
+                if (!idxRes || !idxRes.ok) {
+                    return { ok: false, error: (idxRes && idxRes.error) || 'Không lưu được Mục lục LIB_INDEX_V2 lên Drive.' };
+                }
+                var outbox = getTopicOutbox().filter(function (oid) { return !idSet[String(oid)]; });
+                saveTopicOutbox(outbox);
+                return { ok: true, pushedCount: selectedTopics.length, imageCount: imgTotal, totalRemoteTopics: rTopics.length };
+            });
+        });
+    }
+
+    function pullSelectedTopicsFromDrive(topicIds, onProgress) {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        var ids = (Array.isArray(topicIds) ? topicIds : []).map(function (id) { return String(id || ''); }).filter(Boolean);
+        if (!ids.length) return Promise.resolve({ ok: false, error: 'Chưa chọn đề nào để kéo từ Drive.' });
+
+        return loadLibIndexFromDrive().catch(function () { return null; }).then(function (idxRes) {
+            var rFolders = (idxRes && idxRes.ok && idxRes.data && Array.isArray(idxRes.data.folders)) ? idxRes.data.folders : [];
+            if (rFolders.length) {
+                var curFolders = getGlobalVarSafe('libraryFolders', []);
+                if (!Array.isArray(curFolders)) curFolders = [];
+                var fMap = {};
+                curFolders.forEach(function (f) { if (f && f.id) fMap[String(f.id)] = true; });
+                rFolders.forEach(function (rf) { if (rf && rf.id && !fMap[String(rf.id)]) curFolders.push(rf); });
+                setGlobalVarSafe('libraryFolders', curFolders);
+                try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(curFolders)); } catch (e) { }
+            }
+
+            var SAFE_BATCH = 5;
+            var total = ids.length;
+            var done = 0;
+            var pulledCount = 0;
+            var pulledTopics = [];
+            var chain = Promise.resolve();
+
+            for (var start = 0; start < total; start += SAFE_BATCH) {
+                (function (slice, isFirst) {
+                    chain = chain.then(function () {
+                        return (isFirst ? Promise.resolve() : sleepMs(150)).then(function () {
+                            return Promise.all(slice.map(function (tid) { return loadTopicFromDrive(tid); })).then(function (tResList) {
+                                tResList.forEach(function (tr) {
+                                    if (tr && tr.ok && tr.data && tr.data.id) {
+                                        pulledTopics.push(tr.data);
+                                        pulledCount++;
+                                    }
+                                });
+                                done += slice.length;
+                                if (typeof onProgress === 'function') {
+                                    try { onProgress({ phase: 'topics', done: done, total: total }); } catch (e) { }
+                                }
+                            });
+                        });
+                    });
+                })(ids.slice(start, start + SAFE_BATCH), start === 0);
+            }
+
+            return chain.then(function () {
+                var curTopics = getGlobalVarSafe('savedTopics', []);
+                var list = Array.isArray(curTopics) ? curTopics.slice() : [];
+                pulledTopics.forEach(function (pt) {
+                    var idx = list.findIndex(function (x) { return x && String(x.id) === String(pt.id); });
+                    if (idx >= 0) list[idx] = pt;
+                    else list.push(pt);
+                });
+                setGlobalVarSafe('savedTopics', list);
+                try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) { }
+                try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) { }
+                return { ok: true, pulledCount: pulledCount, totalLocalTopics: list.length };
+            });
+        });
+    }
+
     function pushLibraryToDrive(onProgress) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         var topics = getGlobalVarSafe('savedTopics', []);
@@ -3930,61 +4102,61 @@
                 }
             });
 
-            var indexObj = buildLightLibIndex(topics, folders, deletedIds);
-            return saveLibIndexToDrive(indexObj).then(function (idxRes) {
+            var SAFE_BATCH = 6;
+            var total = topics.length;
+            var pushTotal = topicsToPush.length;
+            var batches = Math.max(1, Math.ceil(pushTotal / SAFE_BATCH));
+            var done = skippedCount;
+            var imgTotal = 0;
+            var chain = Promise.resolve();
+
+            if (typeof onProgress === 'function' && skippedCount > 0) {
+                try { onProgress({ phase: 'topics', done: done, total: total, skipped: skippedCount }); } catch (e) { }
+            }
+
+            for (var start = 0; start < pushTotal; start += SAFE_BATCH) {
+                (function (slice, isFirst) {
+                    chain = chain.then(function () {
+                        return (isFirst ? Promise.resolve() : sleepMs(150)).then(function () {
+                            return Promise.all(slice.map(pushSingleTopicWithImages)).then(function (results) {
+                                results.forEach(function (r) {
+                                    if (r && r.ok) imgTotal += (r.images || 0);
+                                });
+                                done += slice.length;
+                                if (typeof onProgress === 'function') {
+                                    try { onProgress({ phase: 'topics', done: done, total: total, skipped: skippedCount }); } catch (e) { }
+                                }
+                            });
+                        });
+                    });
+                })(topicsToPush.slice(start, start + SAFE_BATCH), start === 0);
+            }
+
+            return chain.then(function () {
+                var indexObj = buildLightLibIndex(topics, folders, deletedIds);
+                return saveLibIndexToDrive(indexObj);
+            }).then(function (idxRes) {
                 if (!idxRes || !idxRes.ok) {
                     return { ok: false, error: (idxRes && idxRes.error) || 'Không lưu được Mục lục LIB_INDEX_V2 lên Drive.' };
                 }
-                var SAFE_BATCH = 6;
-                var total = topics.length;
-                var pushTotal = topicsToPush.length;
-                var batches = Math.max(1, Math.ceil(pushTotal / SAFE_BATCH));
-                var done = skippedCount;
-                var imgTotal = 0;
-                var chain = Promise.resolve();
-
-                if (typeof onProgress === 'function' && skippedCount > 0) {
-                    try { onProgress({ phase: 'topics', done: done, total: total, skipped: skippedCount }); } catch (e) { }
-                }
-
-                for (var start = 0; start < pushTotal; start += SAFE_BATCH) {
-                    (function (slice, isFirst) {
-                        chain = chain.then(function () {
-                            return (isFirst ? Promise.resolve() : sleepMs(150)).then(function () {
-                                return Promise.all(slice.map(pushSingleTopicWithImages)).then(function (results) {
-                                    results.forEach(function (r) {
-                                        if (r && r.ok) imgTotal += (r.images || 0);
-                                    });
-                                    done += slice.length;
-                                    if (typeof onProgress === 'function') {
-                                        try { onProgress({ phase: 'topics', done: done, total: total, skipped: skippedCount }); } catch (e) { }
-                                    }
-                                });
-                            });
-                        });
-                    })(topicsToPush.slice(start, start + SAFE_BATCH), start === 0);
-                }
-
-                return chain.then(function () {
-                    var pubPayload = buildPubIndexPayload(topics, folders);
-                    var keepIds = topics.map(function (t) { return t && t.id ? String(t.id) : ''; }).filter(Boolean);
-                    return savePubIndexToDrive(pubPayload).then(function () {
-                        return postToPrimaryGas({ action: 'pruneDriveTopics', keepTopicIds: keepIds }, 1)
-                            .catch(function () { return { ok: false, prunedCount: 0 }; });
-                    }).then(function (pruneRes) {
-                        saveTopicOutbox([]);
-                        return {
-                            ok: true,
-                            topicCount: total,
-                            pushedCount: pushTotal,
-                            newCount: newCount,
-                            updatedCount: updatedCount,
-                            skippedCount: skippedCount,
-                            batches: batches,
-                            imageCount: imgTotal,
-                            prunedCount: (pruneRes && pruneRes.prunedCount) || 0
-                        };
-                    });
+                var pubPayload = buildPubIndexPayload(topics, folders);
+                var keepIds = topics.map(function (t) { return t && t.id ? String(t.id) : ''; }).filter(Boolean);
+                return savePubIndexToDrive(pubPayload).then(function () {
+                    return postToPrimaryGas({ action: 'pruneDriveTopics', keepTopicIds: keepIds }, 1)
+                        .catch(function () { return { ok: false, prunedCount: 0 }; });
+                }).then(function (pruneRes) {
+                    saveTopicOutbox([]);
+                    return {
+                        ok: true,
+                        topicCount: total,
+                        pushedCount: pushTotal,
+                        newCount: newCount,
+                        updatedCount: updatedCount,
+                        skippedCount: skippedCount,
+                        batches: batches,
+                        imageCount: imgTotal,
+                        prunedCount: (pruneRes && pruneRes.prunedCount) || 0
+                    };
                 });
             });
         });
@@ -4680,6 +4852,10 @@
         enqueueTopicSync: enqueueTopicSync,
         getTopicOutboxCount: getTopicOutboxCount,
         flushTopicOutbox: flushTopicOutbox,
+        computeTopicSyncHash: computeTopicSyncHash,
+        listDriveTopicsInFolder: listDriveTopicsInFolder,
+        pushSelectedTopicsToDrive: pushSelectedTopicsToDrive,
+        pullSelectedTopicsFromDrive: pullSelectedTopicsFromDrive,
         pushLibraryToDrive: pushLibraryToDrive,
         pullLibraryFromDrive: pullLibraryFromDrive,
         savePubIndexToDrive: savePubIndexToDrive,
