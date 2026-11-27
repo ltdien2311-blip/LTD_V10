@@ -13031,11 +13031,12 @@ const COLS = 24;
 
             var tps = [];
             try {
-                var rawTps = (Array.isArray(savedTopics) ? savedTopics : []).filter(function (t) { return t && t.folderId === folder.id && topicVisible(t); });
+                var targetFid = String(folder.id || '');
+                var rawTps = (Array.isArray(savedTopics) ? savedTopics : []).filter(function (t) { return t && t.id && String(t.folderId || '') === targetFid; });
                 tps = typeof sortTopicsByOrder === 'function' ? sortTopicsByOrder(rawTps) : rawTps;
                 if (!tps.length) {
                     var subIds = {};
-                    subIds[String(folder.id)] = true;
+                    subIds[targetFid] = true;
                     var added = true;
                     while (added) {
                         added = false;
@@ -13046,7 +13047,7 @@ const COLS = 24;
                             }
                         });
                     }
-                    var subTps = (Array.isArray(savedTopics) ? savedTopics : []).filter(function (t) { return t && t.folderId && subIds[String(t.folderId)] && topicVisible(t); });
+                    var subTps = (Array.isArray(savedTopics) ? savedTopics : []).filter(function (t) { return t && t.id && t.folderId && subIds[String(t.folderId)]; });
                     tps = typeof sortTopicsByOrder === 'function' ? sortTopicsByOrder(subTps) : subTps;
                 }
             } catch (exScan) {
