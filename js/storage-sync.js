@@ -4274,8 +4274,13 @@
                     mergedFolders.push(rf);
                 }
             });
+            if (Array.isArray(curFolders)) {
+                curFolders.length = 0;
+                mergedFolders.forEach(function (f) { curFolders.push(f); });
+            }
             setGlobalVarSafe('libraryFolders', mergedFolders);
             try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(mergedFolders)); } catch (e) {}
+            try { if (typeof window !== 'undefined' && typeof window.saveFolders === 'function') window.saveFolders(); } catch (e) {}
 
             var curTopics = getGlobalVarSafe('savedTopics', []);
             var topicMap = {};

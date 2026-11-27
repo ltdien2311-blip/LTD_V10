@@ -14962,7 +14962,24 @@ const COLS = 24;
         if (nQ || nR) { try { CODE129Bank.toast('🔄 Đã đồng bộ ' + chg.length + ' câu: cập nhật ' + nT + ' đề thi (' + nQ + ' câu) • chấm lại ' + nR + ' bài làm của học sinh'); } catch (e) {} }
     }
 
+        try {
+            window.renderLibraryList = renderLibraryList;
+            window.saveToStorage = saveToStorage;
+            window.saveFolders = saveFolders;
+        } catch (e) {}
         window.LTDLibBridge = {
+            setVar: (name, val) => {
+                if (name === 'libraryFolders' && Array.isArray(val)) {
+                    libraryFolders.length = 0;
+                    val.forEach(x => libraryFolders.push(x));
+                } else if (name === 'savedTopics' && Array.isArray(val)) {
+                    savedTopics.length = 0;
+                    val.forEach(x => savedTopics.push(x));
+                } else if (name === 'deletedTopicIds' && Array.isArray(val)) {
+                    deletedTopicIds.length = 0;
+                    val.forEach(x => deletedTopicIds.push(x));
+                }
+            },
             getVar: (name) => {
                 switch (name) {
                     case 'savedTopics': return savedTopics;
