@@ -1759,6 +1759,18 @@
                 });
             }).catch(function () { return false; });
         }
+        function deleteSlideDataUrl(id) {
+            if (!id) return Promise.resolve(false);
+            try { delete _memSlideMap[id]; } catch (e) {}
+            return openObsDb().then(function (db) {
+                return new Promise(function (resolve) {
+                    var tx = db.transaction('slides', 'readwrite');
+                    tx.objectStore('slides').delete(id);
+                    tx.oncomplete = function () { resolve(true); };
+                    tx.onerror = function () { resolve(false); };
+                });
+            }).catch(function () { return false; });
+        }
         function getSlideDataUrl(id) {
             if (_memSlideMap[id]) return Promise.resolve(_memSlideMap[id]);
             return openObsDb().then(function (db) {
@@ -2031,7 +2043,7 @@
             var gvCount = d ? d.slides.length : 0;
             var hsCount = d ? d.hsSlides.length : 0;
             var cntEl = $('#mm-deck-count');
-            if (cntEl) cntEl.textContent = String(gvCount + hsCount);
+            if (cntEl) cntEl.textContent = String(hsCount > 0 ? hsCount : gvCount);
             var gvCntEl = $('#mm-gv-cnt');
             if (gvCntEl) gvCntEl.textContent = String(gvCount);
             var hsCntEl = $('#mm-hs-cnt');
@@ -2910,9 +2922,43 @@
                 else if (_editingSlideIdx === idx + 1) _editingSlideIdx = idx;
             }
             else if (act === 'del') {
-                arr.splice(idx, 1);
-                if (_editingSlideIdx === idx) _editingSlideIdx = -1;
-                else if (_editingSlideIdx > idx) _editingSlideIdx--;
+                var targetSlide = arr[idx];
+                var deletedIds = [];
+                if (targetSlide && targetSlide.pairId) {
+                    var pid = targetSlide.pairId;
+                    var curEditSlide = (_editingSlideIdx >= 0 && d.slides[_editingSlideIdx]) ? d.slides[_editingSlideIdx] : null;
+                    if (curEditSlide && curEditSlide.pairId === pid) {
+                        _editingSlideIdx = -1;
+                    } else if (_editingSlideIdx > 0) {
+                        var shiftCnt = 0;
+                        for (var si = 0; si < _editingSlideIdx; si++) {
+                            if (d.slides[si] && d.slides[si].pairId === pid) shiftCnt++;
+                        }
+                        _editingSlideIdx -= shiftCnt;
+                    }
+                    d.slides = d.slides.filter(function (s) {
+                        if (s && s.pairId === pid) {
+                            if (s.id) deletedIds.push(s.id);
+                            return false;
+                        }
+                        return true;
+                    });
+                    d.hsSlides = d.hsSlides.filter(function (s) {
+                        if (s && s.pairId === pid) {
+                            if (s.id) deletedIds.push(s.id);
+                            return false;
+                        }
+                        return true;
+                    });
+                } else {
+                    if (targetSlide && targetSlide.id) deletedIds.push(targetSlide.id);
+                    arr.splice(idx, 1);
+                    if (_deckState.viewTab !== 'hs') {
+                        if (_editingSlideIdx === idx) _editingSlideIdx = -1;
+                        else if (_editingSlideIdx > idx) _editingSlideIdx--;
+                    }
+                }
+                deletedIds.forEach(function (id) { deleteSlideDataUrl(id); });
             }
             saveDecksMeta(); renderDeckDrawer();
         });
