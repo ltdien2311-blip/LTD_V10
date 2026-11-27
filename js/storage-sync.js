@@ -2979,7 +2979,7 @@
             }).then(function (res) {
                 var ok = !!(res && res.ok);
                 var msg = ok
-                    ? ('✅ Đã đẩy lên Drive: ' + (res.topicCount || 0) + ' đề (' + (res.batches || 1) + ' lô) &amp; ' + (res.imageCount || 0) + ' ảnh WebP vào thư mục Thi_Online_LTD_CloudData.')
+                    ? ('✅ Đẩy Drive xong · Mới: ' + (res.newCount || 0) + ' · Cập nhật: ' + (res.updatedCount || 0) + ' · Bỏ qua: ' + (res.skippedCount || 0) + ' · Dọn: ' + (res.prunedCount || 0) + ' (' + (res.imageCount || 0) + ' ảnh mới).')
                     : ('❌ ' + esc((res && res.error) || 'Đẩy lên Drive thất bại.'));
                 if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:' + (ok ? '#ecfdf5;color:#047857' : '#fef2f2;color:#b91c1c') + ';font-weight:800;font-size:13px">' + msg + '</div>';
                 return res;
@@ -3795,6 +3795,43 @@
         }
     }
 
+    function fnv1a32(str) {
+        var h = 0x811c9dc5;
+        var s = String(str || '');
+        for (var i = 0; i < s.length; i++) {
+            h ^= s.charCodeAt(i);
+            h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+        }
+        return h.toString(36);
+    }
+
+    function computeTopicSyncHash(t) {
+        if (!t || typeof t !== 'object') return '';
+        var img = String(t.minMapImgDataUrl || '');
+        var imgSig = img ? (img.length + ':' + img.slice(0, 32) + ':' + img.slice(-32)) : '';
+        var core = JSON.stringify({
+            title: String(t.title || ''),
+            subtitle: String(t.subtitle || ''),
+            subject: String(t.subject || ''),
+            grade: String(t.grade || ''),
+            folderId: t.folderId || null,
+            isPublished: !!t.isPublished,
+            publishScope: t.publishScope || '',
+            allowStudentPdf: !!t.allowStudentPdf,
+            studentPdfKey: t.studentPdfKey || '',
+            studentPdfUrl: t.studentPdfUrl || '',
+            teacherDocxKey: t.teacherDocxKey || '',
+            videoUrl: t.videoUrl || '',
+            isMinMapDeck: !!t.isMinMapDeck,
+            minMapRole: t.minMapRole || '',
+            minMapMarkdown: String(t.minMapMarkdown || ''),
+            hsSlideKeys: Array.isArray(t.hsSlideKeys) ? t.hsSlideKeys : [],
+            questions: Array.isArray(t.questions) ? t.questions : [],
+            imgSig: imgSig
+        });
+        return core.length + '_' + fnv1a32(core);
+    }
+
     function buildLightLibIndex(topics, folders, deletedIds) {
         var lightTopics = (Array.isArray(topics) ? topics : []).filter(Boolean).map(function (t) {
             return {
@@ -3807,6 +3844,7 @@
                 isMinMapDeck: !!t.isMinMapDeck,
                 minMapRole: t.minMapRole || '',
                 updatedAt: Number(t.updatedAt || 0),
+                syncHash: computeTopicSyncHash(t),
                 qCount: Array.isArray(t.questions) ? t.questions.length : 0,
                 hsCount: Array.isArray(t.hsSlideKeys) ? t.hsSlideKeys.length : 0
             };
@@ -3865,23 +3903,29 @@
         getTopicOutbox().forEach(function (id) { outboxMap[String(id)] = true; });
 
         return loadLibIndexFromDrive().catch(function () { return null; }).then(function (remoteIdxRes) {
-            var remoteUpdatedMap = {};
+            var remoteMap = {};
             if (remoteIdxRes && remoteIdxRes.ok && remoteIdxRes.data && Array.isArray(remoteIdxRes.data.topics)) {
                 remoteIdxRes.data.topics.forEach(function (rt) {
-                    if (rt && rt.id) remoteUpdatedMap[String(rt.id)] = Number(rt.updatedAt || 0);
+                    if (rt && rt.id) remoteMap[String(rt.id)] = rt;
                 });
             }
 
             var topicsToPush = [];
+            var newCount = 0;
+            var updatedCount = 0;
             var skippedCount = 0;
             topics.forEach(function (t) {
                 if (!t || !t.id) return;
                 var tid = String(t.id);
-                var localTs = Number(t.updatedAt || 0);
-                var hasRemote = Object.prototype.hasOwnProperty.call(remoteUpdatedMap, tid);
-                if (hasRemote && localTs > 0 && remoteUpdatedMap[tid] === localTs && !outboxMap[tid]) {
+                var rt = remoteMap[tid];
+                var localHash = computeTopicSyncHash(t);
+                if (!rt) {
+                    newCount++;
+                    topicsToPush.push(t);
+                } else if (rt.syncHash && rt.syncHash === localHash && !outboxMap[tid]) {
                     skippedCount++;
                 } else {
+                    updatedCount++;
                     topicsToPush.push(t);
                 }
             });
@@ -3933,6 +3977,8 @@
                             ok: true,
                             topicCount: total,
                             pushedCount: pushTotal,
+                            newCount: newCount,
+                            updatedCount: updatedCount,
                             skippedCount: skippedCount,
                             batches: batches,
                             imageCount: imgTotal,
