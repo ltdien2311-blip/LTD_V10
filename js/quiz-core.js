@@ -12990,31 +12990,6 @@ const COLS = 24;
 
         function openFolderPushDialog(folder) {
             if (!folder || !folder.id) return;
-            var gb = window.GasBridge;
-            if (!gb || typeof gb.listDriveTopicsInFolder !== 'function' || typeof gb.pushSelectedTopicsToDrive !== 'function') {
-                if (typeof showNotice === 'function') showNotice('Cần kết nối GAS #1 để đẩy đề lên Drive.', 'error');
-                else alert('Cần kết nối GAS #1 để đẩy đề lên Drive.');
-                return;
-            }
-            var tps = sortTopicsByOrder(savedTopics.filter(function (t) { return t && t.folderId === folder.id && topicVisible(t); }));
-            if (!tps.length) {
-                // Fallback: collect topics inside descendant subfolders if current folder has no direct topics
-                var subIds = {};
-                subIds[String(folder.id)] = true;
-                var added = true;
-                while (added) {
-                    added = false;
-                    (Array.isArray(libraryFolders) ? libraryFolders : []).forEach(function (f) {
-                        if (f && f.id && f.parentId && subIds[String(f.parentId)] && !subIds[String(f.id)]) {
-                            subIds[String(f.id)] = true;
-                            added = true;
-                        }
-                    });
-                }
-                tps = sortTopicsByOrder(savedTopics.filter(function (t) { return t && t.folderId && subIds[String(t.folderId)] && topicVisible(t); }));
-            }
-            /* Always open dialog so user sees clear feedback instead of silent return */
-
             var old = document.getElementById('lib-folder-sync-modal');
             if (old && old.parentNode) old.parentNode.removeChild(old);
 
@@ -13046,6 +13021,39 @@ const COLS = 24;
 
             var listEl = dlg.querySelector('#lfs-list');
             var stEl = dlg.querySelector('#lfs-status');
+
+            var gb = window.GasBridge;
+            if (!gb || typeof gb.listDriveTopicsInFolder !== 'function' || typeof gb.pushSelectedTopicsToDrive !== 'function') {
+                stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
+                stEl.textContent = '❌ Cần cập nhật đầy đủ storage-sync.js và kết nối GAS #1 để đẩy đề lên Drive.';
+                return;
+            }
+
+            var tps = [];
+            try {
+                var rawTps = (Array.isArray(savedTopics) ? savedTopics : []).filter(function (t) { return t && t.folderId === folder.id && topicVisible(t); });
+                tps = typeof sortTopicsByOrder === 'function' ? sortTopicsByOrder(rawTps) : rawTps;
+                if (!tps.length) {
+                    var subIds = {};
+                    subIds[String(folder.id)] = true;
+                    var added = true;
+                    while (added) {
+                        added = false;
+                        (Array.isArray(libraryFolders) ? libraryFolders : []).forEach(function (f) {
+                            if (f && f.id && f.parentId && subIds[String(f.parentId)] && !subIds[String(f.id)]) {
+                                subIds[String(f.id)] = true;
+                                added = true;
+                            }
+                        });
+                    }
+                    var subTps = (Array.isArray(savedTopics) ? savedTopics : []).filter(function (t) { return t && t.folderId && subIds[String(t.folderId)] && topicVisible(t); });
+                    tps = typeof sortTopicsByOrder === 'function' ? sortTopicsByOrder(subTps) : subTps;
+                }
+            } catch (exScan) {
+                stEl.style.color = '#b91c1c'; stEl.style.background = '#fef2f2';
+                stEl.textContent = '❌ Lỗi đọc danh sách đề: ' + ((exScan && exScan.message) || String(exScan));
+                return;
+            }
 
             function renderPushRows(remoteMap) {
                 if (!tps.length) {
