@@ -207,7 +207,7 @@
         return /==(?:(?!==)[^\r\n])+==\s*[.]?\s*$/.test(String(text || '').trim());
     }
 
-    function renderInline(text, student, colorState, cardIdx, lineIdx) {
+    function renderInline(text, student, colorState, cardIdx, lineIdx, opts) {
         var trimmed = String(text || '').trim();
         var endsBlank = student && lineEndsWithBlank(trimmed);
         var src = (student && !endsBlank) ? ensureTrailingDot(trimmed) : trimmed;
@@ -234,6 +234,8 @@
                 if (isEnd && src.slice(item.end).trim().length > 0) {
                     out += '<span class="vp-blank-break"></span>';
                 }
+            } else if (opts && opts.hideKey) {
+                out += renderMathText(item.inner);
             } else {
                 out += '<span class="vp-key" style="color:' + color + '">' + renderMathText(item.inner) + '</span>';
             }
@@ -271,7 +273,7 @@
         return ' mm-align-justify';
     }
 
-    function renderCardHtml(c, idx, student, colorState) {
+    function renderCardHtml(c, idx, student, colorState, opts) {
         var activeSelBranch = student ? (state.studentSelectedBranch || 0) : (state.selectedBranch || 0);
         var selCls = idx === activeSelBranch ? ' vp-selected' : '';
         var fs = student ? state.studentBodyFs : state.teacherBodyFs;
@@ -292,9 +294,9 @@
                 h += '<div class="vp-line' + stemCls + '" data-depth="0" data-row="' + c.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + ';margin-bottom:0.45em' + stemCss + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix="' + escapeHtml(c.title) + '. "' : '') + '>' + renderMathText(stemTxt) + '</div>';
             }
             c.lines.forEach(function (l, li) {
-                var r = renderInline(l.text, student, colorState, idx, li);
+                var r = renderInline(l.text, student, colorState, idx, li, opts);
                 if (l.isOpt) {
-                    var lblCls = !student ? (l.ok ? 'mm-tf-lbl is-true' : 'mm-tf-lbl is-false') : 'mm-tf-lbl';
+                    var lblCls = (!student && !(opts && opts.hideKey)) ? (l.ok ? 'mm-tf-lbl is-true' : 'mm-tf-lbl is-false') : 'mm-tf-lbl';
                     var pfx = (l.ok ? '*' : '') + l.letter + ') ';
                     var tfCls = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var tfVal = getTeacherLineAlignVal(l.rowIdx, idx, student);
@@ -309,7 +311,7 @@
             });
         } else {
             c.lines.forEach(function (l, li) {
-                var r = renderInline(l.text, student, colorState, idx, li);
+                var r = renderInline(l.text, student, colorState, idx, li, opts);
                 var lineFs = l.depth === 0 ? parentFs : fs;
                 var lineFw = student ? 400 : (l.depth === 0 ? 700 : 400);
                 var jClsN = getTeacherLineAlignClass(l.rowIdx, idx, student);
@@ -342,7 +344,7 @@
         checkTeacherOverflow();
     }
 
-    function renderStage(student) {
+    function renderStage(student, opts) {
         var container = $(student ? '#mm-student-stage-inner' : '#mm-teacher-stage-inner');
         var ed = $('#markdown-editor');
         if (!container || !ed) return;
@@ -375,12 +377,12 @@
         var bFs = student ? Math.round(state.studentBodyFs * 1.54) : Math.round(state.teacherBodyFs * 1.1);
         var html = '<div class="vp-banner vp-shape">' + renderMathText(model.title.replace(/==/g, '') || 'Sơ đồ tư duy') + '</div>';
         html += '<div class="vp-cols-grid' + (student && cards.length === 1 ? ' single-col' : '') + '">';
-        html += '<div class="vp-col-stack">' + cols[0].map(function (c) { return renderCardHtml(c, cards.indexOf(c), student, colorState); }).join('') + '</div>';
+        html += '<div class="vp-col-stack">' + cols[0].map(function (c) { return renderCardHtml(c, cards.indexOf(c), student, colorState, opts); }).join('') + '</div>';
         if (!student) {
             html += '<div class="vp-cam-col"></div>';
         }
         if (!(student && cards.length === 1)) {
-            html += '<div class="vp-col-stack">' + cols[1].map(function (c) { return renderCardHtml(c, cards.indexOf(c), student, colorState); }).join('') + '</div>';
+            html += '<div class="vp-col-stack">' + cols[1].map(function (c) { return renderCardHtml(c, cards.indexOf(c), student, colorState, opts); }).join('') + '</div>';
         }
         html += '</div>';
         container.innerHTML = html;
@@ -2069,29 +2071,83 @@
                 });
             }
 
-            return captureStage(gvStage, 'teacher', 1920, 1080).then(function (gvRes) {
+            var isExamMode = !!model.isExam;
+            var gvCapPromise = isExamMode
+                ? (function () {
+                    renderStage(false, { hideKey: true });
+                    return captureStage(gvStage, 'teacher', 1920, 1080).then(function (noKeyRes) {
+                        renderStage(false);
+                        return captureStage(gvStage, 'teacher', 1920, 1080).then(function (keyRes) {
+                            return { dual: true, noKey: noKeyRes, withKey: keyRes };
+                        });
+                    });
+                })()
+                : captureStage(gvStage, 'teacher', 1920, 1080).then(function (gvRes) {
+                    return { dual: false, single: gvRes };
+                });
+
+            return gvCapPromise.then(function (gvPack) {
                 return captureStage(hsStage, 'student', 794, 0).then(function (hsRes) {
                     var deck = getActiveDeck();
                     var ts = Date.now();
                     var rnd = Math.random().toString(36).slice(2, 6);
-                    var gvId = 'mmsl_' + ts + '_' + rnd;
                     var hsId = 'mmhs_' + ts + '_' + rnd;
-                    return Promise.all([
-                        putSlideDataUrl(gvId, gvRes.dataUrl),
-                        putSlideDataUrl(hsId, hsRes.dataUrl)
-                    ]).then(function () {
+                    var isOverwrite = (forceNew !== true && _editingSlideIdx >= 0 && (_editingSlideIdx < deck.slides.length || _editingSlideIdx < deck.hsSlides.length));
+
+                    var existingPairId = '';
+                    if (isOverwrite) {
+                        var refArr = (_deckState.viewTab === 'hs') ? deck.hsSlides : deck.slides;
+                        var refSl = refArr[_editingSlideIdx];
+                        if (refSl && refSl.pairId) existingPairId = String(refSl.pairId);
+                    }
+                    var pairId = existingPairId || ('pair_' + ts + '_' + rnd);
+                    var pageCfg = snapshotPageSettings();
+                    var hsEntry = { id: hsId, pairId: pairId, isExam: isExamMode, title: title, w: hsRes.w, h: hsRes.h, markdown: edVal, settings: cloneSettingVal(pageCfg, {}), createdAt: ts };
+
+                    var putJobs = [putSlideDataUrl(hsId, hsRes.dataUrl)];
+                    var gvEntries = [];
+                    if (gvPack.dual) {
+                        var gvId1 = 'mmsl_' + ts + '_' + rnd + '_q';
+                        var gvId2 = 'mmsl_' + ts + '_' + rnd + '_a';
+                        putJobs.push(putSlideDataUrl(gvId1, gvPack.noKey.dataUrl));
+                        putJobs.push(putSlideDataUrl(gvId2, gvPack.withKey.dataUrl));
+                        gvEntries.push({ id: gvId1, pairId: pairId, isExam: true, examRole: 'question', title: title + ' [Đề]', w: gvPack.noKey.w, h: gvPack.noKey.h, markdown: edVal, settings: cloneSettingVal(pageCfg, {}), createdAt: ts });
+                        gvEntries.push({ id: gvId2, pairId: pairId, isExam: true, examRole: 'answer', title: title + ' [Đáp án]', w: gvPack.withKey.w, h: gvPack.withKey.h, markdown: edVal, settings: cloneSettingVal(pageCfg, {}), createdAt: ts });
+                    } else {
+                        var gvId0 = 'mmsl_' + ts + '_' + rnd;
+                        putJobs.push(putSlideDataUrl(gvId0, gvPack.single.dataUrl));
+                        gvEntries.push({ id: gvId0, pairId: pairId, isExam: false, title: title, w: gvPack.single.w, h: gvPack.single.h, markdown: edVal, settings: pageCfg, createdAt: ts });
+                    }
+
+                    return Promise.all(putJobs).then(function () {
                         if (edVal) deck.minMapMarkdown = edVal;
-                        var pageCfg = snapshotPageSettings();
-                        var isOverwrite = (forceNew !== true && _editingSlideIdx >= 0 && (_editingSlideIdx < deck.slides.length || _editingSlideIdx < deck.hsSlides.length));
-                        var gvEntry = { id: gvId, title: title, w: gvRes.w, h: gvRes.h, markdown: edVal, settings: pageCfg, createdAt: ts };
-                        var hsEntry = { id: hsId, title: title, w: hsRes.w, h: hsRes.h, markdown: edVal, settings: cloneSettingVal(pageCfg, {}), createdAt: ts };
                         if (isOverwrite) {
-                            if (_editingSlideIdx < deck.slides.length) deck.slides[_editingSlideIdx] = gvEntry;
-                            else deck.slides.push(gvEntry);
-                            if (_editingSlideIdx < deck.hsSlides.length) deck.hsSlides[_editingSlideIdx] = hsEntry;
-                            else deck.hsSlides.push(hsEntry);
+                            if (existingPairId) {
+                                var firstGvIdx = -1;
+                                var keptGv = [];
+                                deck.slides.forEach(function (s, idx) {
+                                    if (s && s.pairId === existingPairId) {
+                                        if (firstGvIdx === -1) firstGvIdx = idx;
+                                    } else {
+                                        keptGv.push(s);
+                                    }
+                                });
+                                if (firstGvIdx === -1) firstGvIdx = keptGv.length;
+                                Array.prototype.splice.apply(keptGv, [firstGvIdx, 0].concat(gvEntries));
+                                deck.slides = keptGv;
+
+                                var hsIdx = deck.hsSlides.findIndex(function (s) { return s && s.pairId === existingPairId; });
+                                if (hsIdx >= 0) deck.hsSlides[hsIdx] = hsEntry;
+                                else if (_editingSlideIdx < deck.hsSlides.length) deck.hsSlides[_editingSlideIdx] = hsEntry;
+                                else deck.hsSlides.push(hsEntry);
+                            } else {
+                                var spliceAt = Math.min(_editingSlideIdx, deck.slides.length);
+                                Array.prototype.splice.apply(deck.slides, [spliceAt, (_editingSlideIdx < deck.slides.length ? 1 : 0)].concat(gvEntries));
+                                if (_editingSlideIdx < deck.hsSlides.length) deck.hsSlides[_editingSlideIdx] = hsEntry;
+                                else deck.hsSlides.push(hsEntry);
+                            }
                         } else {
-                            deck.slides.push(gvEntry);
+                            gvEntries.forEach(function (ge) { deck.slides.push(ge); });
                             deck.hsSlides.push(hsEntry);
                             _editingSlideIdx = -1;
                         }
@@ -2099,12 +2155,12 @@
                         renderDeckDrawer();
                         if (isOverwrite) {
                             setStatus('✓ Đã cập nhật đè trang #' + (_editingSlideIdx + 1) + ' trong "' + deck.name + '"');
-                            showToast('Đã cập nhật đè trang #' + (_editingSlideIdx + 1) + ' (GV + HS + Thiết lập)', 'success');
+                            showToast('Đã cập nhật đè trang #' + (_editingSlideIdx + 1) + (gvPack.dual ? ' (2 ảnh GV Đề/Đáp án + 1 HS)' : ' (GV + HS)'), 'success');
                         } else {
                             setStatus('✓ Đã lưu trang mới vào "' + deck.name + '"');
-                            showToast('Đã lưu "' + title + '" (GV + HS + Thiết lập)', 'success');
+                            showToast('Đã lưu "' + title + '"' + (gvPack.dual ? ' (2 ảnh GV Đề/Đáp án + 1 HS)' : ' (GV + HS)'), 'success');
                         }
-                        return { deckId: deck.id, gvId: gvId, hsId: hsId, kind: 'both', overwritten: isOverwrite, gvCount: deck.slides.length, hsCount: deck.hsSlides.length };
+                        return { deckId: deck.id, gvId: gvEntries[0].id, hsId: hsId, pairId: pairId, dual: gvPack.dual, kind: 'both', overwritten: isOverwrite, gvCount: deck.slides.length, hsCount: deck.hsSlides.length };
                     });
                 });
             }).catch(function (err) {
@@ -3149,6 +3205,7 @@
         },
         close: close,
         renderAll: renderAll,
+        renderStage: renderStage,
         switchTab: switchTab,
         autoFitTeacher16x9: function () { var b = $('#vp-zoom'); if (b) b.click(); },
         exportPng: exportPng,
