@@ -247,6 +247,7 @@
     function renderWritingRows(cardIdx, lineIdx, student, defaultOne) {
         if (!student) return '';
         var prefix = cardIdx + ':' + lineIdx + ':';
+        var rowKey = prefix + '0';
         var total = 0;
         var hasCustom = false;
         Object.keys(state.blankRows).forEach(function (k) {
@@ -257,9 +258,11 @@
         });
         if (!hasCustom && defaultOne) total = 1;
         if (!total) return '';
+        var selCls = (state.selectedBlankId === rowKey) ? ' vp-writing-selected' : '';
+        var defAttr = defaultOne ? ' data-default-one="1"' : '';
         var rules = '';
         for (var i = 0; i < total; i++) rules += '<span class="vp-writing-rule"></span>';
-        return '<div class="vp-writing-lines">' + rules + '</div>';
+        return '<div class="vp-writing-lines' + selCls + '" data-row-key="' + rowKey + '"' + defAttr + '>' + rules + '</div>';
     }
 
     function getTeacherLineAlignVal(rowIdx, branchIdx, student) {
@@ -306,7 +309,8 @@
                     var tfCls = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var tfVal = getTeacherLineAlignVal(l.rowIdx, idx, student);
                     var tfCss = tfVal ? (' style="text-align:' + tfVal + ';text-align-last:' + (tfVal === 'right' ? 'right' : 'left') + '"') : '';
-                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + tfCls + '"' + tfCss + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student, !r.hasEnd);
+                    var tfRowKey = student ? (' data-row-key="' + idx + ':' + li + ':0" data-default-one="' + (!r.hasEnd ? '1' : '0') + '"') : '';
+                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"' + tfRowKey + '><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + tfCls + '"' + tfCss + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student, !r.hasEnd);
                 } else {
                     var jCls0 = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var alVal0 = getTeacherLineAlignVal(l.rowIdx, idx, student);
@@ -349,6 +353,7 @@
         checkTeacherOverflow();
     }
 
+    var _syncBlankFloatbarFn = null;
     function renderStage(student, opts) {
         var container = $(student ? '#mm-student-stage-inner' : '#mm-teacher-stage-inner');
         var ed = $('#markdown-editor');
@@ -407,6 +412,29 @@
                     if (info) info.textContent = '✓ Đang chọn ô #' + state.selectedBlankId;
                     renderStage(true);
                     fitStage();
+                });
+            });
+            $all('#mm-student-stage-inner .vp-writing-lines[data-row-key]').forEach(function (wl) {
+                wl.addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    state.selectedBlankId = wl.dataset.rowKey;
+                    var info = $('#mm-selected-blank-info');
+                    if (info) info.textContent = '✓ Đang chọn dòng viết #' + state.selectedBlankId;
+                    renderStage(true);
+                    fitStage();
+                    if (typeof _syncBlankFloatbarFn === 'function') _syncBlankFloatbarFn();
+                });
+            });
+            $all('#mm-student-stage-inner .mm-tf-row[data-row-key]').forEach(function (rowEl) {
+                rowEl.addEventListener('click', function (ev) {
+                    if (ev.target && ev.target.closest && ev.target.closest('.vp-blank')) return;
+                    ev.stopPropagation();
+                    state.selectedBlankId = rowEl.dataset.rowKey;
+                    var info = $('#mm-selected-blank-info');
+                    if (info) info.textContent = '✓ Đang chọn dòng viết #' + state.selectedBlankId;
+                    renderStage(true);
+                    fitStage();
+                    if (typeof _syncBlankFloatbarFn === 'function') _syncBlankFloatbarFn();
                 });
             });
         }
@@ -670,8 +698,8 @@
         Array.prototype.slice.call(clone.querySelectorAll(".mm-blank-grip, #mm-blank-floatbar")).forEach(function (el) {
             try { el.remove(); } catch (e) {}
         });
-        Array.prototype.slice.call(clone.querySelectorAll(".vp-selected, .vp-blank-selected, .mm-sync-active")).forEach(function (el) {
-            el.classList.remove("vp-selected", "vp-blank-selected", "mm-sync-active");
+        Array.prototype.slice.call(clone.querySelectorAll(".vp-selected, .vp-blank-selected, .vp-writing-selected, .mm-sync-active")).forEach(function (el) {
+            el.classList.remove("vp-selected", "vp-blank-selected", "vp-writing-selected", "mm-sync-active");
         });
         return clone;
     }
@@ -1292,7 +1320,7 @@
             if (state.tab === 'student') {
                 renderStage(true);
                 fitStage();
-                if (typeof syncBlankFloatbar === 'function') syncBlankFloatbar();
+                if (typeof _syncBlankFloatbarFn === 'function') _syncBlankFloatbarFn();
             } else {
                 renderStage(false);
                 fitStage();
@@ -1537,6 +1565,7 @@
             }
             return fb;
         }
+        _syncBlankFloatbarFn = syncBlankFloatbar;
         function syncBlankFloatbar() {
             var fb = ensureBlankFloatbar();
             if (!fb) return;
@@ -1544,7 +1573,7 @@
                 fb.classList.add('hidden');
                 return;
             }
-            var bl = $('#mm-student-stage-inner [data-blank-id="' + state.selectedBlankId + '"]');
+            var bl = $('#mm-student-stage-inner [data-blank-id="' + state.selectedBlankId + '"]') || $('#mm-student-stage-inner .vp-writing-lines[data-row-key="' + state.selectedBlankId + '"]') || $('#mm-student-stage-inner .mm-tf-row[data-row-key="' + state.selectedBlankId + '"]');
             if (!bl || !bl.getBoundingClientRect) {
                 fb.classList.add('hidden');
                 return;
@@ -1592,10 +1621,14 @@
         $('#mm-blank-auto').addEventListener('click', function () { resizeSelectedBlank('toggle_end'); });
         function stepBlankRows(delta) {
             if (!state.selectedBlankId) {
-                showToast('Hãy bấm chọn 1 ô chấm trên bản Học sinh trước.', 'warning');
+                showToast('Hãy bấm chọn 1 ô chấm hoặc dòng viết trên bản Học sinh trước.', 'warning');
                 return;
             }
-            var cur = state.blankRows[state.selectedBlankId] || 0;
+            var cur = state.blankRows[state.selectedBlankId];
+            if (cur === undefined) {
+                var defEl = $('#mm-student-stage-inner .vp-writing-lines[data-row-key="' + state.selectedBlankId + '"][data-default-one="1"]') || $('#mm-student-stage-inner .mm-tf-row[data-row-key="' + state.selectedBlankId + '"][data-default-one="1"]');
+                cur = defEl ? 1 : 0;
+            }
             state.blankRows[state.selectedBlankId] = Math.max(0, Math.min(10, cur + delta));
             renderStage(true);
             fitStage();
@@ -1942,7 +1975,7 @@
             state.branchImages = cloneSettingVal(cfg.branchImages, {});
             try {
                 if (typeof switchTab === 'function') switchTab(state.tab);
-                if (typeof syncBlankFloatbar === 'function') syncBlankFloatbar();
+                if (typeof _syncBlankFloatbarFn === 'function') _syncBlankFloatbarFn();
                 var slSel = $('#mm-slogan-theme-select');
                 if (slSel) slSel.value = state.sloganTheme;
                 var slBar = $('#mm-slogan-bar');
