@@ -4223,17 +4223,45 @@
         });
     }
 
-    function pullMinMapDraftsFromDrive(putSlideDataUrlFn, onProgress) {
+    function listMinMapDraftsFromDrive() {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
+            if (!idxRes || !idxRes.ok || !idxRes.data || !Array.isArray(idxRes.data.decks)) {
+                return { ok: false, error: (idxRes && idxRes.error) || 'Chưa có bộ Bài giảng MinMap nào trên Drive.' };
+            }
+            return {
+                ok: true,
+                activeId: String(idxRes.data.activeId || ''),
+                decks: idxRes.data.decks,
+                updatedAt: idxRes.data.updatedAt || 0
+            };
+        }).catch(function (err) {
+            return { ok: false, error: (err && err.message) || String(err) };
+        });
+    }
+
+    function pullMinMapDraftsFromDrive(putSlideDataUrlFn, onProgress, selectedIds) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
             if (!idxRes || !idxRes.ok || !idxRes.data || !Array.isArray(idxRes.data.decks)) {
                 return { ok: false, error: (idxRes && idxRes.error) || 'Chưa có bộ Bài giảng MinMap nào trên Drive.' };
             }
             var idxData = idxRes.data;
+            var selMap = null;
+            if (Array.isArray(selectedIds)) {
+                selMap = {};
+                selectedIds.forEach(function (sid) { selMap[String(sid)] = true; });
+            }
+            var targetMetas = selMap
+                ? idxData.decks.filter(function (dk) { return dk && dk.id && selMap[String(dk.id)]; })
+                : idxData.decks;
+            if (!targetMetas.length) {
+                return { ok: false, error: 'Chưa chọn bài giảng nào để kéo từ Drive.' };
+            }
             var outDecks = [];
             var deckChain = Promise.resolve();
 
-            idxData.decks.forEach(function (dkMeta) {
+            targetMetas.forEach(function (dkMeta) {
                 if (!dkMeta || !dkMeta.id) return;
                 var parts = Math.max(1, Number(dkMeta.parts || 1));
                 var deckObj = {
@@ -4537,6 +4565,8 @@
         pullLibraryFromDrive: pullLibraryFromDrive,
         savePubIndexToDrive: savePubIndexToDrive,
         loadPubIndexFromDrive: loadPubIndexFromDrive,
+        listMinMapDraftsFromDrive: listMinMapDraftsFromDrive,
+        normalizeDeckName: normalizeDeckName,
         pushMinMapDraftsToDrive: pushMinMapDraftsToDrive,
         pullMinMapDraftsFromDrive: pullMinMapDraftsFromDrive,
         syncAfterDelete: syncAfterDelete,

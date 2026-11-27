@@ -2593,30 +2593,118 @@
                 });
             });
         }
+        function normDeckTitle(n) {
+            if (global.GasBridge && typeof global.GasBridge.normalizeDeckName === 'function') {
+                return global.GasBridge.normalizeDeckName(n);
+            }
+            return String(n || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        }
+        function mergePulledDecksIntoLocal(pulledDecks) {
+            var list = Array.isArray(loadDecksMeta()) ? loadDecksMeta().slice() : [];
+            var firstActiveId = '';
+            (pulledDecks || []).forEach(function (pk) {
+                if (!pk) return;
+                var pkNorm = normDeckTitle(pk.name);
+                var idx = -1;
+                for (var i = 0; i < list.length; i++) {
+                    if (normDeckTitle(list[i].name) === pkNorm) { idx = i; break; }
+                }
+                if (idx >= 0) {
+                    list[idx] = pk;
+                } else {
+                    list.push(pk);
+                }
+                if (!firstActiveId) firstActiveId = pk.id;
+            });
+            _deckState.decks = list;
+            if (firstActiveId) _deckState.activeId = firstActiveId;
+            _editingSlideIdx = -1;
+            _memSlideMap = {};
+            saveDecksMeta();
+            renderDeckDrawer();
+        }
+        function openPullPickerDialog(remoteDecks) {
+            var oldDlg = $('#mm-pull-picker-modal');
+            if (oldDlg && oldDlg.parentNode) oldDlg.parentNode.removeChild(oldDlg);
+            var localDecks = loadDecksMeta();
+            var localByNorm = {};
+            localDecks.forEach(function (ld) { if (ld && ld.name) localByNorm[normDeckTitle(ld.name)] = true; });
+            var dlg = document.createElement('div');
+            dlg.id = 'mm-pull-picker-modal';
+            dlg.style.cssText = 'position:fixed;inset:0;z-index:10050;background:rgba(2,6,23,.72);display:flex;align-items:center;justify-content:center;padding:16px;';
+            var rowsHtml = remoteDecks.map(function (dk, idx) {
+                var isDup = !!localByNorm[normDeckTitle(dk.name)];
+                var cnt = Number(dk.slideCount != null ? dk.slideCount : 0);
+                var hsCnt = Number(dk.hsSlideCount != null ? dk.hsSlideCount : 0);
+                var ts = dk.updatedAt ? new Date(dk.updatedAt).toLocaleString('vi-VN') : 'Chưa rõ';
+                var badge = isDup ? '<span style="background:#b45309;color:#fef3c7;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;margin-left:6px;">Trùng tên · Ghi đè</span>' : '<span style="background:#065f46;color:#d1fae5;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;margin-left:6px;">Mới</span>';
+                return '<label style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:8px;background:#1e293b;border:1px solid #334155;cursor:pointer;">' +
+                    '<input type="checkbox" class="mm-pull-chk" value="' + escapeHtml(dk.id) + '"' + (idx === 0 ? ' checked' : '') + ' style="margin-top:3px;width:16px;height:16px;">' +
+                    '<div style="flex:1;min-width:0;">' +
+                    '<div style="font-size:13px;font-weight:700;color:#f8fafc;word-break:break-word;">' + escapeHtml(dk.name || 'Bài giảng') + badge + '</div>' +
+                    '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">Slide GV: ' + cnt + ' · Phiếu HS: ' + hsCnt + ' · Cập nhật: ' + escapeHtml(ts) + '</div>' +
+                    '</div></label>';
+            }).join('');
+            dlg.innerHTML = '<div style="width:min(540px,96vw);max-height:84vh;background:#0f172a;border:1px solid #334155;border-radius:14px;padding:16px;color:#f8fafc;display:flex;flex-direction:column;gap:10px;box-shadow:0 24px 60px rgba(0,0,0,.6);">' +
+                '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+                '<div style="font-size:15px;font-weight:800;color:#38bdf8;">⬇️ Chọn bài giảng kéo từ Google Drive</div>' +
+                '<button type="button" id="mm-pull-close-x" class="vp-btn-sm">✕</button></div>' +
+                '<div style="font-size:12px;color:#cbd5e1;">Tick chọn bài giảng cần kéo về soạn tiếp. Các bài giảng tên khác đang soạn trên máy được giữ nguyên 100%.</div>' +
+                '<div style="display:flex;gap:8px;"><button type="button" id="mm-pull-sel-all" class="vp-btn-sm">✓ Chọn tất cả</button><button type="button" id="mm-pull-sel-none" class="vp-btn-sm">Bỏ chọn</button></div>' +
+                '<div id="mm-pull-list" style="display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:48vh;padding-right:4px;">' + rowsHtml + '</div>' +
+                '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">' +
+                '<button type="button" id="mm-pull-cancel" class="vp-btn-sm">Hủy</button>' +
+                '<button type="button" id="mm-pull-confirm" class="vp-btn-sm accent">⬇️ Kéo bài đã chọn</button></div></div>';
+            modalEl.appendChild(dlg);
+            function closeDlg() { if (dlg && dlg.parentNode) dlg.parentNode.removeChild(dlg); }
+            dlg.querySelector('#mm-pull-close-x').addEventListener('click', closeDlg);
+            dlg.querySelector('#mm-pull-cancel').addEventListener('click', closeDlg);
+            dlg.querySelector('#mm-pull-sel-all').addEventListener('click', function () {
+                Array.prototype.slice.call(dlg.querySelectorAll('.mm-pull-chk')).forEach(function (c) { c.checked = true; });
+            });
+            dlg.querySelector('#mm-pull-sel-none').addEventListener('click', function () {
+                Array.prototype.slice.call(dlg.querySelectorAll('.mm-pull-chk')).forEach(function (c) { c.checked = false; });
+            });
+            dlg.querySelector('#mm-pull-confirm').addEventListener('click', function () {
+                var selectedIds = Array.prototype.slice.call(dlg.querySelectorAll('.mm-pull-chk'))
+                    .filter(function (c) { return c.checked; })
+                    .map(function (c) { return c.value; });
+                if (!selectedIds.length) {
+                    showToast('Hãy tick chọn ít nhất 1 bài giảng để kéo.', 'warning');
+                    return;
+                }
+                closeDlg();
+                var stEl = $('#mm-deck-sync-status');
+                if (stEl) { stEl.style.color = '#93c5fd'; stEl.textContent = '⏳ Đang kéo ' + selectedIds.length + ' bài giảng từ Drive...'; }
+                global.GasBridge.pullMinMapDraftsFromDrive(putSlideDataUrl, function (p) {
+                    if (stEl && p) stEl.textContent = '⏳ Đang tải ảnh: ' + (p.done || 0) + '/' + (p.total || 0) + '...';
+                }, selectedIds).then(function (r) {
+                    if (r && r.ok && r.data && Array.isArray(r.data.decks) && r.data.decks.length) {
+                        mergePulledDecksIntoLocal(r.data.decks);
+                        if (stEl) { stEl.style.color = '#6ee7b7'; stEl.textContent = '✅ Đã kéo ' + (r.deckCount || 0) + ' bài & ' + (r.imageCount || 0) + ' ảnh về máy!'; }
+                        showToast('Đã kéo bài giảng về soạn tiếp!', 'success');
+                    } else {
+                        if (stEl) { stEl.style.color = '#fca5a5'; stEl.textContent = '⚠️ ' + ((r && r.error) || 'Không tải được bài giảng'); }
+                    }
+                });
+            });
+        }
+        if (modalEl) modalEl._mergePulledDecksIntoLocal = mergePulledDecksIntoLocal;
         if ($('#mm-deck-pull-drive')) {
             $('#mm-deck-pull-drive').addEventListener('click', function () {
-                if (!global.GasBridge || !global.GasBridge.isGasEnabled || !global.GasBridge.isGasEnabled() || typeof global.GasBridge.pullMinMapDraftsFromDrive !== 'function') {
+                if (!global.GasBridge || !global.GasBridge.isGasEnabled || !global.GasBridge.isGasEnabled() || typeof global.GasBridge.listMinMapDraftsFromDrive !== 'function') {
                     showToast('Cần kết nối GAS #1 để kéo từ Drive!', 'error');
                     return;
                 }
-                if (typeof global.confirm === 'function' && !global.confirm('Kéo bộ Bài giảng MinMap từ Google Drive (ghi đè bộ đang soạn trên máy này)?')) return;
                 var stEl = $('#mm-deck-sync-status');
-                if (stEl) { stEl.style.color = '#93c5fd'; stEl.textContent = '⏳ Đang tải bộ Bài giảng MinMap từ Drive...'; }
-                global.GasBridge.pullMinMapDraftsFromDrive(putSlideDataUrl, function (p) {
-                    if (stEl && p) stEl.textContent = '⏳ Đang tải ảnh: ' + (p.done || 0) + '/' + (p.total || 0) + '...';
-                }).then(function (r) {
-                    if (r && r.ok && r.data && Array.isArray(r.data.decks) && r.data.decks.length) {
-                        _deckState.decks = r.data.decks;
-                        _deckState.activeId = r.data.activeId || r.data.decks[0].id;
-                        _editingSlideIdx = -1;
-                        _memSlideMap = {};
-                        saveDecksMeta();
-                        renderDeckDrawer();
-                        if (stEl) { stEl.style.color = '#6ee7b7'; stEl.textContent = '✅ Đã kéo ' + (r.deckCount || 0) + ' bộ & ' + (r.imageCount || 0) + ' ảnh từ Drive!'; }
-                        showToast('Đã kéo bộ Bài giảng MinMap từ Drive về máy!', 'success');
-                    } else {
-                        if (stEl) { stEl.style.color = '#fca5a5'; stEl.textContent = '⚠️ ' + ((r && r.error) || 'Chưa có dữ liệu trên Drive'); }
+                if (stEl) { stEl.style.color = '#93c5fd'; stEl.textContent = '⏳ Đang đọc danh sách bài giảng trên Drive...'; }
+                global.GasBridge.listMinMapDraftsFromDrive().then(function (res) {
+                    if (!res || !res.ok || !Array.isArray(res.decks) || !res.decks.length) {
+                        if (stEl) { stEl.style.color = '#fca5a5'; stEl.textContent = '⚠️ ' + ((res && res.error) || 'Chưa có bài giảng nào trên Drive'); }
+                        return;
                     }
+                    if (stEl) { stEl.style.color = '#93c5fd'; stEl.textContent = '✓ Có ' + res.decks.length + ' bài giảng trên Drive. Hãy tick chọn!'; }
+                    openPullPickerDialog(res.decks);
                 });
             });
         }
