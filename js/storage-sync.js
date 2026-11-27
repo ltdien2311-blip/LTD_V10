@@ -3849,6 +3849,10 @@
         });
     }
 
+    function sleepMs(ms) {
+        return new Promise(function (resolve) { setTimeout(resolve, ms); });
+    }
+
     function pushLibraryToDrive(onProgress) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         var topics = getGlobalVarSafe('savedTopics', []);
@@ -3857,48 +3861,84 @@
         var deletedIds = getGlobalVarSafe('deletedTopicIds', []);
         if (!Array.isArray(topics)) topics = [];
 
-        var indexObj = buildLightLibIndex(topics, folders, deletedIds);
-        return saveLibIndexToDrive(indexObj).then(function (idxRes) {
-            if (!idxRes || !idxRes.ok) {
-                return { ok: false, error: (idxRes && idxRes.error) || 'Không lưu được Mục lục LIB_INDEX_V2 lên Drive.' };
-            }
-            var total = topics.length;
-            var batches = Math.max(1, Math.ceil(total / TOPIC_BATCH_SIZE));
-            var done = 0;
-            var imgTotal = 0;
-            var chain = Promise.resolve();
+        var outboxMap = {};
+        getTopicOutbox().forEach(function (id) { outboxMap[String(id)] = true; });
 
-            for (var start = 0; start < total; start += TOPIC_BATCH_SIZE) {
-                (function (slice) {
-                    chain = chain.then(function () {
-                        return Promise.all(slice.map(pushSingleTopicWithImages)).then(function (results) {
-                            results.forEach(function (r) {
-                                if (r && r.ok) imgTotal += (r.images || 0);
+        return loadLibIndexFromDrive().catch(function () { return null; }).then(function (remoteIdxRes) {
+            var remoteUpdatedMap = {};
+            if (remoteIdxRes && remoteIdxRes.ok && remoteIdxRes.data && Array.isArray(remoteIdxRes.data.topics)) {
+                remoteIdxRes.data.topics.forEach(function (rt) {
+                    if (rt && rt.id) remoteUpdatedMap[String(rt.id)] = Number(rt.updatedAt || 0);
+                });
+            }
+
+            var topicsToPush = [];
+            var skippedCount = 0;
+            topics.forEach(function (t) {
+                if (!t || !t.id) return;
+                var tid = String(t.id);
+                var localTs = Number(t.updatedAt || 0);
+                var hasRemote = Object.prototype.hasOwnProperty.call(remoteUpdatedMap, tid);
+                if (hasRemote && localTs > 0 && remoteUpdatedMap[tid] === localTs && !outboxMap[tid]) {
+                    skippedCount++;
+                } else {
+                    topicsToPush.push(t);
+                }
+            });
+
+            var indexObj = buildLightLibIndex(topics, folders, deletedIds);
+            return saveLibIndexToDrive(indexObj).then(function (idxRes) {
+                if (!idxRes || !idxRes.ok) {
+                    return { ok: false, error: (idxRes && idxRes.error) || 'Không lưu được Mục lục LIB_INDEX_V2 lên Drive.' };
+                }
+                var SAFE_BATCH = 6;
+                var total = topics.length;
+                var pushTotal = topicsToPush.length;
+                var batches = Math.max(1, Math.ceil(pushTotal / SAFE_BATCH));
+                var done = skippedCount;
+                var imgTotal = 0;
+                var chain = Promise.resolve();
+
+                if (typeof onProgress === 'function' && skippedCount > 0) {
+                    try { onProgress({ phase: 'topics', done: done, total: total, skipped: skippedCount }); } catch (e) { }
+                }
+
+                for (var start = 0; start < pushTotal; start += SAFE_BATCH) {
+                    (function (slice, isFirst) {
+                        chain = chain.then(function () {
+                            return (isFirst ? Promise.resolve() : sleepMs(150)).then(function () {
+                                return Promise.all(slice.map(pushSingleTopicWithImages)).then(function (results) {
+                                    results.forEach(function (r) {
+                                        if (r && r.ok) imgTotal += (r.images || 0);
+                                    });
+                                    done += slice.length;
+                                    if (typeof onProgress === 'function') {
+                                        try { onProgress({ phase: 'topics', done: done, total: total, skipped: skippedCount }); } catch (e) { }
+                                    }
+                                });
                             });
-                            done += slice.length;
-                            if (typeof onProgress === 'function') {
-                                try { onProgress({ phase: 'topics', done: done, total: total }); } catch (e) { }
-                            }
                         });
-                    });
-                })(topics.slice(start, start + TOPIC_BATCH_SIZE));
-            }
+                    })(topicsToPush.slice(start, start + SAFE_BATCH), start === 0);
+                }
 
-            return chain.then(function () {
-                var pubPayload = buildPubIndexPayload(topics, folders);
-                var keepIds = topics.map(function (t) { return t && t.id ? String(t.id) : ''; }).filter(Boolean);
-                return savePubIndexToDrive(pubPayload).then(function () {
-                    return postToPrimaryGas({ action: 'pruneDriveTopics', keepTopicIds: keepIds }, 1)
-                        .catch(function () { return { ok: false, prunedCount: 0 }; });
-                }).then(function (pruneRes) {
-                    saveTopicOutbox([]);
-                    return {
-                        ok: true,
-                        topicCount: total,
-                        batches: batches,
-                        imageCount: imgTotal,
-                        prunedCount: (pruneRes && pruneRes.prunedCount) || 0
-                    };
+                return chain.then(function () {
+                    var pubPayload = buildPubIndexPayload(topics, folders);
+                    var keepIds = topics.map(function (t) { return t && t.id ? String(t.id) : ''; }).filter(Boolean);
+                    return savePubIndexToDrive(pubPayload).then(function () {
+                        return postToPrimaryGas({ action: 'pruneDriveTopics', keepTopicIds: keepIds }, 1)
+                            .catch(function () { return { ok: false, prunedCount: 0 }; });
+                    }).then(function (pruneRes) {
+                        saveTopicOutbox([]);
+                        return {
+                            ok: true,
+                            topicCount: total,
+                            pushedCount: pushTotal,
+                            skippedCount: skippedCount,
+                            batches: batches,
+                            imageCount: imgTotal,
+                            prunedCount: (pruneRes && pruneRes.prunedCount) || 0
+                        };
+                    });
                 });
             });
         });
@@ -3961,29 +4001,60 @@
             var remoteDeleted = Array.isArray(idxData.deletedTopicIds) ? idxData.deletedTopicIds.slice() : [];
             var remoteList = Array.isArray(idxData.topics) ? idxData.topics : [];
 
+            var localTopics = getGlobalVarSafe('savedTopics', []);
+            var localMap = {};
+            (Array.isArray(localTopics) ? localTopics : []).forEach(function (lt) {
+                if (lt && lt.id) localMap[String(lt.id)] = lt;
+            });
+
             var total = remoteList.length;
             var done = 0;
             var pulledCount = 0;
+            var reusedCount = 0;
             var newTopics = [];
+            var needFetch = [];
+
+            remoteList.forEach(function (rt) {
+                if (!rt || !rt.id) return;
+                var lt = localMap[String(rt.id)];
+                var localTs = lt ? Number(lt.updatedAt || 0) : 0;
+                var remoteTs = Number(rt.updatedAt || 0);
+                var hasBody = lt && ((Array.isArray(lt.questions) && lt.questions.length > 0) || lt.isMinMap || lt.minMapImgDataUrl);
+                if (lt && hasBody && localTs > 0 && remoteTs > 0 && localTs >= remoteTs) {
+                    newTopics.push(lt);
+                    reusedCount++;
+                    done++;
+                } else {
+                    needFetch.push(rt);
+                }
+            });
+
+            if (typeof onProgress === 'function' && reusedCount > 0) {
+                try { onProgress({ phase: 'topics', done: done, total: total, reused: reusedCount }); } catch (e) { }
+            }
+
+            var SAFE_BATCH = 6;
             var chain = Promise.resolve();
 
-            for (var start = 0; start < total; start += TOPIC_BATCH_SIZE) {
-                (function (slice) {
+            for (var start = 0; start < needFetch.length; start += SAFE_BATCH) {
+                (function (slice, isFirst) {
                     chain = chain.then(function () {
-                        return Promise.all(slice.map(function (rt) { return rt && rt.id ? loadTopicFromDrive(rt.id) : Promise.resolve(null); })).then(function (tResList) {
-                            tResList.forEach(function (tr) {
-                                if (tr && tr.ok && tr.data && tr.data.id) {
-                                    newTopics.push(tr.data);
-                                    pulledCount++;
+                        return (isFirst ? Promise.resolve() : sleepMs(150)).then(function () {
+                            return Promise.all(slice.map(function (rt) { return loadTopicFromDrive(rt.id); })).then(function (tResList) {
+                                tResList.forEach(function (tr) {
+                                    if (tr && tr.ok && tr.data && tr.data.id) {
+                                        newTopics.push(tr.data);
+                                        pulledCount++;
+                                    }
+                                });
+                                done += slice.length;
+                                if (typeof onProgress === 'function') {
+                                    try { onProgress({ phase: 'topics', done: done, total: total, reused: reusedCount }); } catch (e) { }
                                 }
                             });
-                            done += slice.length;
-                            if (typeof onProgress === 'function') {
-                                try { onProgress({ phase: 'topics', done: done, total: total }); } catch (e) { }
-                            }
                         });
                     });
-                })(remoteList.slice(start, start + TOPIC_BATCH_SIZE));
+                })(needFetch.slice(start, start + SAFE_BATCH), start === 0);
             }
 
             return chain.then(function () {
@@ -4018,7 +4089,7 @@
                 saveTopicOutbox([]);
                 try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) { }
                 try { if (typeof window !== 'undefined' && typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e) { }
-                return { ok: true, pulledCount: pulledCount, totalInIndex: remoteList.length };
+                return { ok: true, pulledCount: pulledCount, reusedCount: reusedCount, totalInIndex: remoteList.length };
             });
         });
     }
@@ -4296,11 +4367,12 @@
                 var done = 0;
                 var loadedImgs = 0;
                 var imgChain = Promise.resolve();
-                var IMG_BATCH = 4;
+                var IMG_BATCH = 3;
 
                 for (var i = 0; i < total; i += IMG_BATCH) {
-                    (function (slice) {
+                    (function (slice, isFirst) {
                         imgChain = imgChain.then(function () {
+                            return (isFirst ? Promise.resolve() : sleepMs(120)).then(function () {
                             return Promise.all(slice.map(function (sid) {
                                 return loadImageFromDrive(sid).then(function (ir) {
                                     var imgUrl = (ir && ir.data && ir.data.dataUrl) || (ir && ir.dataUrl) || '';
@@ -4315,8 +4387,9 @@
                                     try { onProgress({ phase: 'images', done: done, total: total }); } catch (e) {}
                                 }
                             });
+                            });
                         });
-                    })(allIds.slice(i, i + IMG_BATCH));
+                    })(allIds.slice(i, i + IMG_BATCH), i === 0);
                 }
 
                 return imgChain.then(function () {
