@@ -244,13 +244,18 @@
         return { html: out + renderMathText(src.slice(last)), hasEnd: hasEnd };
     }
 
-    function renderWritingRows(cardIdx, lineIdx, student) {
+    function renderWritingRows(cardIdx, lineIdx, student, defaultOne) {
         if (!student) return '';
         var prefix = cardIdx + ':' + lineIdx + ':';
         var total = 0;
+        var hasCustom = false;
         Object.keys(state.blankRows).forEach(function (k) {
-            if (k.indexOf(prefix) === 0) total += (state.blankRows[k] || 0);
+            if (k.indexOf(prefix) === 0) {
+                hasCustom = true;
+                total += (state.blankRows[k] || 0);
+            }
         });
+        if (!hasCustom && defaultOne) total = 1;
         if (!total) return '';
         var rules = '';
         for (var i = 0; i < total; i++) rules += '<span class="vp-writing-rule"></span>';
@@ -301,7 +306,7 @@
                     var tfCls = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var tfVal = getTeacherLineAlignVal(l.rowIdx, idx, student);
                     var tfCss = tfVal ? (' style="text-align:' + tfVal + ';text-align-last:' + (tfVal === 'right' ? 'right' : 'left') + '"') : '';
-                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + tfCls + '"' + tfCss + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student);
+                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + tfCls + '"' + tfCss + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student, !r.hasEnd);
                 } else {
                     var jCls0 = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var alVal0 = getTeacherLineAlignVal(l.rowIdx, idx, student);
@@ -1949,14 +1954,30 @@
                 if (prSel) prSel.value = state.tab;
             } catch (e) {}
         }
+        function getSlideGroupNum(arr, idx) {
+            if (!Array.isArray(arr) || idx < 0 || idx >= arr.length) return idx + 1;
+            var seen = {};
+            var grp = 0;
+            for (var k = 0; k <= idx; k++) {
+                var item = arr[k];
+                var pid = (item && item.pairId) ? ('p:' + item.pairId) : ('i:' + k);
+                if (!seen[pid]) {
+                    seen[pid] = ++grp;
+                }
+            }
+            var cur = arr[idx];
+            var curPid = (cur && cur.pairId) ? ('p:' + cur.pairId) : ('i:' + idx);
+            return seen[curPid] || (idx + 1);
+        }
         function syncSaveButtonsUi() {
             var btn = $('#vp-save-obs-deck');
             var newBtn = $('#vp-save-new-obs');
             var dk = getActiveDeck();
             var arr = dk ? (_deckState.viewTab === 'hs' ? dk.hsSlides : dk.slides) : [];
             if (_editingSlideIdx >= 0 && _editingSlideIdx < arr.length) {
+                var grpNum = getSlideGroupNum(arr, _editingSlideIdx);
                 if (btn) {
-                    btn.textContent = '💾 Cập nhật #' + (_editingSlideIdx + 1);
+                    btn.textContent = '💾 Cập nhật #' + grpNum;
                     btn.style.background = '#0284c7';
                     btn.style.borderColor = '#38bdf8';
                 }
@@ -2010,13 +2031,16 @@
                 } else {
                     listEl.innerHTML = arr.map(function (sl, i) {
                         var src = _memSlideMap[sl.id] || '';
-                        var isEd = (i === _editingSlideIdx);
-                        var numLabel = String(i + 1).padStart(2, '0');
+                        var edPairId = (_editingSlideIdx >= 0 && arr[_editingSlideIdx] && arr[_editingSlideIdx].pairId) ? arr[_editingSlideIdx].pairId : '';
+                        var isEd = (i === _editingSlideIdx) || (!!edPairId && sl.pairId === edPairId);
+                        var grpNum = getSlideGroupNum(arr, i);
+                        var numLabel = String(grpNum).padStart(2, '0');
+                        var roleTag = sl.examRole === 'question' ? ' · Đề' : (sl.examRole === 'answer' ? ' · Đáp án' : '');
                         var badgeHtml = isEd ? '<span class="mm-editing-badge">✏️ Đang sửa</span>' : '';
                         return '<div class="mm-deck-item' + (isEd ? ' is-editing' : '') + '" draggable="true" data-sidx="' + i + '" title="Bấm vào để nạp lại 100% thiết lập & Markdown lên Cột 1">' +
                             '<img class="mm-deck-thumb" data-sid="' + escapeHtml(sl.id) + '" src="' + src + '" alt="slide">' +
                             '<div class="mm-deck-meta">' +
-                            '<div class="mm-deck-head"><span class="mm-deck-num">#' + numLabel + '</span>' + badgeHtml + '</div>' +
+                            '<div class="mm-deck-head"><span class="mm-deck-num">#' + numLabel + roleTag + '</span>' + badgeHtml + '</div>' +
                             '<div class="mm-deck-title">' + escapeHtml(sl.title || 'Trang') + '</div>' +
                             '</div>' +
                             '<div class="mm-deck-acts">' +
@@ -2154,8 +2178,9 @@
                         saveDecksMeta();
                         renderDeckDrawer();
                         if (isOverwrite) {
-                            setStatus('✓ Đã cập nhật đè trang #' + (_editingSlideIdx + 1) + ' trong "' + deck.name + '"');
-                            showToast('Đã cập nhật đè trang #' + (_editingSlideIdx + 1) + (gvPack.dual ? ' (2 ảnh GV Đề/Đáp án + 1 HS)' : ' (GV + HS)'), 'success');
+                            var ovGrp = getSlideGroupNum(deck.slides, Math.min(_editingSlideIdx, deck.slides.length - 1));
+                            setStatus('✓ Đã cập nhật đè #' + ovGrp + ' trong "' + deck.name + '"');
+                            showToast('Đã cập nhật đè #' + ovGrp + (gvPack.dual ? ' (cả 2 ảnh GV Đề/Đáp án + 1 HS)' : ' (GV + HS)'), 'success');
                         } else {
                             setStatus('✓ Đã lưu trang mới vào "' + deck.name + '"');
                             showToast('Đã lưu "' + title + '"' + (gvPack.dual ? ' (2 ảnh GV Đề/Đáp án + 1 HS)' : ' (GV + HS)'), 'success');
