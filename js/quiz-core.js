@@ -14995,6 +14995,12 @@ const COLS = 24;
                     default: return undefined;
                 }
             },
+            clearDeletedFolders: (ids) => {
+                if (!Array.isArray(ids) || !ids.length) return;
+                const set = new Set(ids.map(x => String(x)));
+                deletedFolderIds = deletedFolderIds.filter(x => !set.has(String(x)));
+                try { localStorage.setItem('matrix_deleted_folder_ids_v1', JSON.stringify(deletedFolderIds)); } catch (e) {}
+            },
             getFolders: () => Array.isArray(libraryFolders) ? libraryFolders : [],
             dedupeFolders: () => dedupeLibraryFolders(true),
             getTopics: () => Array.isArray(savedTopics) ? savedTopics : [],

@@ -250,7 +250,7 @@
                 '</div>' +
               '</div>' +
               '<div id="vl-qr-box" style="display:none;text-align:center;margin-bottom:12px"></div>' +
-              '<label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;font-weight:700;color:#0f172a;cursor:pointer"><input type="checkbox" id="vl-publish-chk"' + ((topic.isPublished !== false && mode !== 'locked') ? ' checked' : '') + '> 🚀 Xuất bản ra Thư viện học sinh</label>' +
+              '<label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;font-weight:700;color:#0f172a;cursor:pointer"><input type="checkbox" id="vl-publish-chk"' + ((topic.isPublished === true && mode !== 'locked') ? ' checked' : '') + '> 🚀 Xuất bản ra Thư viện học sinh</label>' +
               '<div style="display:flex;gap:8px;justify-content:flex-end">' +
                 '<button type="button" id="vl-cancel" class="px-4 py-2 rounded-xl font-bold bg-slate-100">Đóng</button>' +
                 '<button type="button" id="vl-save" class="px-4 py-2 rounded-xl font-black text-white bg-emerald-600">💾 Lưu &amp; Đồng bộ Cloud</button>' +
@@ -272,6 +272,8 @@
             });
             ov.querySelector('#vl-smart-picker').style.display = scope === 'selected' ? 'block' : 'none';
             ov.querySelector('#vl-sel-cnt').textContent = scope === 'selected' ? '(' + picked.length + ' HS)' : '';
+            var pChk = ov.querySelector('#vl-publish-chk');
+            if (pChk && mode === 'locked') pChk.checked = false;
         }
 
         function paintTokens() {
@@ -404,13 +406,31 @@
                 try { if (typeof global.markTopicLocallyModified === 'function') global.markTopicLocallyModified(topic.id); } catch (e) {}
                 try { if (typeof global.saveToStorage === 'function') global.saveToStorage(); } catch (e2) {}
                 try { if (typeof global.renderLibraryList === 'function') global.renderLibraryList(); } catch (e3) {}
-                try { if (global.CloudSync && global.CloudSync.schedule) global.CloudSync.schedule(true); } catch (e4) {}
             }
+            try { if (typeof global.renderLibraryList === 'function') global.renderLibraryList(); } catch (e3b) {}
+
+            var syncPromise = Promise.resolve();
+            if (global.GasBridge && typeof global.GasBridge.isGasEnabled === 'function' && global.GasBridge.isGasEnabled()) {
+                var pSave = (typeof global.GasBridge.saveTopicToDrive === 'function')
+                    ? global.GasBridge.saveTopicToDrive(topic).catch(function () { return null; })
+                    : Promise.resolve();
+                syncPromise = pSave.then(function () {
+                    if (typeof global.GasBridge.syncAfterDelete === 'function') {
+                        return global.GasBridge.syncAfterDelete().catch(function () { return null; });
+                    }
+                });
+            } else if (global.CloudSync && global.CloudSync.schedule) {
+                try { global.CloudSync.schedule(true); } catch (e4) {}
+            }
+
             closeM();
-            try {
-                if (global.LTDLibBridge && typeof global.LTDLibBridge.notify === 'function') global.LTDLibBridge.notify('Đã lưu bài giảng', 'Đã cập nhật ' + videos.length + ' video và đồng bộ Cloud.', 'success');
-                else if (typeof global.showModal === 'function') global.showModal('Đã lưu bài giảng', 'Đã cập nhật ' + videos.length + ' video và đồng bộ Cloud.', 'success');
-            } catch (e5) {}
+            syncPromise.then(function () {
+                var pubStatus = topic.isPublished ? 'Đã xuất bản ra Thư viện học sinh.' : 'Đã ngắt xuất bản khỏi Thư viện học sinh.';
+                try {
+                    if (global.LTDLibBridge && typeof global.LTDLibBridge.notify === 'function') global.LTDLibBridge.notify('Đã lưu bài giảng', 'Đã cập nhật ' + videos.length + ' video. ' + pubStatus, 'success');
+                    else if (typeof global.showModal === 'function') global.showModal('Đã lưu bài giảng', 'Đã cập nhật ' + videos.length + ' video. ' + pubStatus, 'success');
+                } catch (e5) {}
+            });
         };
 
         paintTokens();

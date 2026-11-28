@@ -1006,6 +1006,7 @@
             '  </div>',
             '  <div id="mm-deck-sync-status" style="font-size:11.5px;font-weight:700;color:#93c5fd;min-height:0;"></div>',
             '  <button type="button" class="vp-btn-png compact" id="mm-push-lib-btn" style="width:100%;justify-content:center;background:#d97706;border-color:#fbbf24;">📤 Đẩy vào Thư viện</button>',
+            '  <button type="button" class="vp-btn-png compact" id="mm-extract-tf-game" style="width:100%;justify-content:center;background:#db2777;border-color:#f472b6;" title="Gom các câu Đúng/Sai trong bài giảng thành đề thi chơi trực tiếp">🎮 Tách câu Đúng/Sai chơi trực tiếp</button>',
             '</div>',
             '<div id="mm-push-backdrop" class="mm-push-backdrop hidden">',
             '  <div id="mm-push-dialog" class="mm-push-dialog">',
@@ -2745,7 +2746,15 @@
             _deckState.decks = list;
             if (firstActiveId) _deckState.activeId = firstActiveId;
             _editingSlideIdx = -1;
-            _memSlideMap = {};
+            (pulledDecks || []).forEach(function (pk) {
+                if (!pk) return;
+                var oldDk = list.find(function (x) { return x && x.id === pk.id; });
+                if (oldDk) {
+                    (oldDk.slides || []).concat(oldDk.hsSlides || []).forEach(function (s) {
+                        if (s && s.id) delete _memSlideMap[s.id];
+                    });
+                }
+            });
             saveDecksMeta();
             renderDeckDrawer();
         }
@@ -2766,7 +2775,7 @@
                 var badge = isDup ? '<span style="background:#b45309;color:#fef3c7;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;margin-left:6px;">Trùng tên · Ghi đè</span>' : '<span style="background:#065f46;color:#d1fae5;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:700;margin-left:6px;">Mới</span>';
                 return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:#1e293b;border:1px solid #334155;">' +
                     '<label style="display:flex;align-items:flex-start;gap:10px;flex:1;min-width:0;cursor:pointer;">' +
-                    '<input type="checkbox" class="mm-pull-chk" value="' + escapeHtml(dk.id) + '"' + (idx === 0 ? ' checked' : '') + ' style="margin-top:3px;width:16px;height:16px;">' +
+                    '<input type="checkbox" class="mm-pull-chk" value="' + escapeHtml(dk.id) + '" style="margin-top:3px;width:16px;height:16px;">' +
                     '<div style="flex:1;min-width:0;">' +
                     '<div style="font-size:13px;font-weight:700;color:#f8fafc;word-break:break-word;">' + escapeHtml(dk.name || 'Bài giảng') + badge + '</div>' +
                     '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">Slide GV: ' + cnt + ' · Phiếu HS: ' + hsCnt + ' · Cập nhật: ' + escapeHtml(ts) + '</div>' +
@@ -3031,6 +3040,131 @@
             _dragSlideIdx = -1;
         });
         $('#mm-push-lib-btn').addEventListener('click', openPushDialog);
+
+        function cleanMinMapHighlight(txt) {
+            return String(txt || '').replace(/==/g, '').replace(/\s+/g, ' ').trim();
+        }
+        function extractTfQuestionsFromDeck(deck, fallbackMarkdown) {
+            var out = [];
+            var seenPairs = {};
+            var seenMd = {};
+            var qCounter = 0;
+            function collectFromMd(mdText) {
+                if (!mdText || !String(mdText).trim()) return;
+                var model = parseInput(mdText);
+                if (!model || !model.isExam || !Array.isArray(model.cards)) return;
+                model.cards.forEach(function (card) {
+                    if (!card || card.type !== 'exam' || !Array.isArray(card.lines)) return;
+                    var opts = card.lines.filter(function (l) { return l && l.isOpt; });
+                    if (!opts.length) return;
+                    qCounter++;
+                    out.push({
+                        id: 'q_mmtf_' + Date.now() + '_' + qCounter,
+                        type: 'tf',
+                        text: cleanMinMapHighlight(card.stem || card.title || 'Xét các phát biểu sau:'),
+                        options: opts.map(function (o) {
+                            return { letter: String(o.letter || 'a').toLowerCase(), text: cleanMinMapHighlight(o.text) };
+                        }),
+                        tfAnswers: opts.map(function (o) { return !!o.ok; })
+                    });
+                });
+            }
+            var slides = (deck && Array.isArray(deck.slides)) ? deck.slides : [];
+            slides.forEach(function (sl) {
+                if (!sl || !sl.markdown) return;
+                if (sl.pairId) {
+                    if (seenPairs[sl.pairId]) return;
+                    seenPairs[sl.pairId] = true;
+                } else {
+                    var mdKey = String(sl.markdown).trim();
+                    if (seenMd[mdKey]) return;
+                    seenMd[mdKey] = true;
+                }
+                collectFromMd(sl.markdown);
+            });
+            if (!out.length && fallbackMarkdown) {
+                collectFromMd(fallbackMarkdown);
+            }
+            return out;
+        }
+        function openExtractTfGameDialog() {
+            var deck = getActiveDeck();
+            var edEl = $('#markdown-editor');
+            var qs = extractTfQuestionsFromDeck(deck, edEl ? edEl.value : '');
+            if (!qs.length) {
+                showToast('Bài giảng này chưa có trang câu hỏi Đúng/Sai (Câu 1... *a) b)...).', 'warning');
+                return;
+            }
+            var oldDlg = $('#mm-tf-extract-modal');
+            if (oldDlg && oldDlg.parentNode) oldDlg.parentNode.removeChild(oldDlg);
+            var folders = (global.LTDLibBridge && typeof global.LTDLibBridge.getFolders === 'function')
+                ? (global.LTDLibBridge.getFolders() || [])
+                : [];
+            var folderOpts = '<option value="">-- Gốc môn Hóa học --</option>' + folders.map(function (f) {
+                if (!f || !f.id || f.parentId === '__subj_meta__') return '';
+                return '<option value="' + escapeHtml(f.id) + '" data-subj="' + escapeHtml(f.subject || 'hoa') + '">' + escapeHtml(f.name || 'Thư mục') + '</option>';
+            }).join('');
+            var defTitle = ((deck && deck.name) ? deck.name : 'Bài giảng MinMap') + ' - Đúng/Sai';
+            var dlg = document.createElement('div');
+            dlg.id = 'mm-tf-extract-modal';
+            dlg.style.cssText = 'position:fixed;inset:0;z-index:10055;background:rgba(2,6,23,.72);display:flex;align-items:center;justify-content:center;padding:16px;';
+            dlg.innerHTML = '<div style="width:min(460px,95vw);background:#0f172a;border:1px solid #334155;border-radius:14px;padding:16px;color:#f8fafc;display:flex;flex-direction:column;gap:10px;box-shadow:0 24px 60px rgba(0,0,0,.6);">' +
+                '<div style="display:flex;align-items:center;justify-content:space-between;"><strong style="font-size:15px;color:#f472b6;">🎮 Tách câu Đúng/Sai chơi trực tiếp</strong><button type="button" id="mm-tf-close-x" class="vp-btn-sm">✕</button></div>' +
+                '<div style="font-size:12.5px;color:#cbd5e1;">Đã trích xuất được <b style="color:#fde047;">' + qs.length + ' câu Đúng/Sai</b> (đã tự động lọc trùng bản Đề/Đáp án).</div>' +
+                '<div class="mm-deck-field"><span>Tên đề:</span><input type="text" id="mm-tf-title" class="mm-deck-sel" value="' + escapeHtml(defTitle) + '"></div>' +
+                '<div class="mm-deck-field"><span>Lưu vào:</span><select id="mm-tf-folder" class="mm-deck-sel">' + folderOpts + '</select></div>' +
+                '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">' +
+                '<button type="button" id="mm-tf-cancel" class="vp-btn-sm">Hủy</button>' +
+                '<button type="button" id="mm-tf-confirm" class="vp-btn-sm accent" style="background:#db2777;border-color:#f472b6;">🎮 Lưu &amp; Chơi trực tiếp ngay</button>' +
+                '</div></div>';
+            modalEl.appendChild(dlg);
+            function closeTfDlg() { if (dlg && dlg.parentNode) dlg.parentNode.removeChild(dlg); }
+            dlg.querySelector('#mm-tf-close-x').addEventListener('click', closeTfDlg);
+            dlg.querySelector('#mm-tf-cancel').addEventListener('click', closeTfDlg);
+            dlg.querySelector('#mm-tf-confirm').addEventListener('click', function () {
+                var titleInp = dlg.querySelector('#mm-tf-title');
+                var folderSel = dlg.querySelector('#mm-tf-folder');
+                var tName = (titleInp && titleInp.value ? titleInp.value.trim() : '') || defTitle;
+                var fId = folderSel ? (folderSel.value || '') : '';
+                var subj = 'hoa';
+                if (fId && folders.length) {
+                    var mf = folders.find(function (x) { return x && x.id === fId; });
+                    if (mf && mf.subject) subj = mf.subject;
+                }
+                var now = Date.now();
+                var newTopic = {
+                    id: 'mm_tf_' + now,
+                    title: tName,
+                    subtitle: tName,
+                    subject: subj,
+                    folderId: fId || null,
+                    grade: 'ALL',
+                    isPublished: false,
+                    questions: qs,
+                    createdAt: now,
+                    updatedAt: now
+                };
+                if (global.LTDLibBridge && typeof global.LTDLibBridge.upsertTopic === 'function') {
+                    global.LTDLibBridge.upsertTopic(newTopic);
+                } else if (Array.isArray(global.savedTopics)) {
+                    global.savedTopics.push(newTopic);
+                    if (typeof global.saveToStorage === 'function') global.saveToStorage();
+                    if (typeof global.renderLibraryList === 'function') global.renderLibraryList();
+                }
+                closeTfDlg();
+                close();
+                showToast('Đã tạo đề "' + tName + '" (' + qs.length + ' câu Đúng/Sai)!', 'success');
+                if (global.LV && typeof global.LV.open === 'function') {
+                    global.LV.open(newTopic.id);
+                } else if (typeof global.loadTopic === 'function') {
+                    global.loadTopic(newTopic.id);
+                }
+            });
+        }
+        if ($('#mm-extract-tf-game')) {
+            $('#mm-extract-tf-game').addEventListener('click', openExtractTfGameDialog);
+        }
+        if (global.LTDMinMap) global.LTDMinMap.extractTfQuestionsFromDeck = extractTfQuestionsFromDeck;
         $('#mm-push-cancel').addEventListener('click', closePushDialog);
         $('#mm-push-cancel-btn').addEventListener('click', closePushDialog);
         $('#mm-push-confirm-btn').addEventListener('click', pushDeckToLibrary);

@@ -1647,6 +1647,7 @@
     }
 
     function applyItem(kind, key, obj, ch) {
+        if (isDriveLibManaged() && (kind === 'topics' || kind === 'folders')) return;
         if (kind === 'topics') {
             S.tTopics[enc(key)] = obj;
             var T = g('savedTopics'), i = T.findIndex(function (t) { return t && t.id === key; });
@@ -1704,6 +1705,7 @@
         ch[kind] = true;
     }
     function removeItem(kind, key, ch) {
+        if (isDriveLibManaged() && (kind === 'topics' || kind === 'folders')) return;
         if (kind === 'topics') {
             var T = g('savedTopics'); var i = T.findIndex(function (t) { return t && t.id === key; }); if (i >= 0) T.splice(i, 1);
             (0, eval)('deletedTopicIds = Array.from(new Set(deletedTopicIds.concat([' + JSON.stringify(key) + '])))');
@@ -2479,6 +2481,7 @@
             h += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
                 '<button type="button" onclick="CloudSync.pushLibraryToDriveGas()" style="' + btn('linear-gradient(90deg,#0284c7,#2563eb)') + '">☁️ Đẩy Thư viện &amp; MinMap lên Drive</button>' +
                 '<button type="button" onclick="CloudSync.pullLibraryFromDriveGas()" style="' + btn('linear-gradient(90deg,#059669,#0d9488)') + '">⬇️ Kéo Thư viện &amp; MinMap từ Drive</button>' +
+                '<button type="button" onclick="CloudSync.migrateDriveTo3ZonesGas()" style="' + btn('linear-gradient(90deg,#7c3aed,#4f46e5)') + '">🗂️ Quy hoạch Drive 3 vùng</button>' +
                 '<button type="button" onclick="CloudSync.testGasConnection()" style="' + btn('#0f766e') + '">🔌 Kiểm tra kết nối</button>' +
                 '<button type="button" onclick="CloudSync.syncNow()" style="' + btn('#4f46e5') + '">🔄 Đồng bộ Live</button>' +
                 '</div>';
@@ -2985,6 +2988,25 @@
                     ? ('✅ Đẩy Drive xong · Mới: ' + (res.newCount || 0) + ' · Cập nhật: ' + (res.updatedCount || 0) + ' · Bỏ qua: ' + (res.skippedCount || 0) + ' · Dọn: ' + (res.prunedCount || 0) + ' (' + (res.imageCount || 0) + ' ảnh mới).')
                     : ('❌ ' + esc((res && res.error) || 'Đẩy lên Drive thất bại.'));
                 if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:' + (ok ? '#ecfdf5;color:#047857' : '#fef2f2;color:#b91c1c') + ';font-weight:800;font-size:13px">' + msg + '</div>';
+                return res;
+            });
+        },
+        migrateDriveTo3ZonesGas: function () {
+            if (!window.GasBridge || !window.GasBridge.migrateDriveTo3Zones) return Promise.resolve();
+            if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+                if (!window.confirm('Quy hoạch Google Drive thành 3 vùng chuẩn (01_ThuVien_DeThi, 02_MinMap_BaiGiang, 03_HeThong_MucLuc)?\nDữ liệu cũ được giữ nguyên an toàn.')) {
+                    return Promise.resolve({ ok: false, cancelled: true });
+                }
+            }
+            var box = $('gas-test-status');
+            if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-weight:800;font-size:13px">⏳ Đang quy hoạch Drive 3 vùng...</div>';
+            return window.GasBridge.migrateDriveTo3Zones().then(function (res) {
+                var ok = !!(res && res.ok);
+                var msg = ok
+                    ? ('✅ Quy hoạch xong · Mục lục: ' + (res.migratedIndexes || 0) + ' · MinMap: ' + (res.migratedDecks || 0) + ' bộ (' + (res.migratedImages || 0) + ' ảnh).')
+                    : ('❌ ' + ((res && res.error) || 'Lỗi quy hoạch Drive (hãy cập nhật GAS v19).'));
+                if (box) box.innerHTML = '<div style="padding:10px 12px;border-radius:10px;background:' + (ok ? '#ecfdf5;color:#065f46' : '#fef2f2;color:#b91c1c') + ';font-weight:800;font-size:13px">' + msg + '</div>';
+                if (typeof toast === 'function') toast(msg);
                 return res;
             });
         },
@@ -4060,7 +4082,9 @@
                 curFolders.forEach(function (f) { if (f && f.id) fMap[String(f.id)] = true; });
                 rFolders.forEach(function (rf) { if (rf && rf.id && !fMap[String(rf.id)]) curFolders.push(rf); });
                 setGlobalVarSafe('libraryFolders', curFolders);
+                clearDeletedFoldersSafe(rFolders);
                 try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(curFolders)); } catch (e) { }
+                try { if (typeof window !== 'undefined' && typeof window.saveFolders === 'function') window.saveFolders(); } catch (e) { }
             }
 
             var SAFE_BATCH = 5;
@@ -4252,6 +4276,28 @@
         try { if (typeof window !== 'undefined' && typeof window.saveToStorage === 'function') window.saveToStorage(); } catch (e) { }
     }
 
+    function clearDeletedFoldersSafe(folders) {
+        if (!Array.isArray(folders) || !folders.length) return;
+        var ids = folders.map(function (f) { return f && f.id ? String(f.id) : ''; }).filter(Boolean);
+        if (!ids.length) return;
+        try {
+            if (typeof window !== 'undefined' && window.LTDLibBridge && typeof window.LTDLibBridge.clearDeletedFolders === 'function') {
+                window.LTDLibBridge.clearDeletedFolders(ids);
+                return;
+            }
+        } catch (e) {}
+        try {
+            if (typeof localStorage !== 'undefined') {
+                var curDel = safeJsonParse(localStorage.getItem('matrix_deleted_folder_ids_v1'), []);
+                if (Array.isArray(curDel) && curDel.length) {
+                    var idMap = {};
+                    ids.forEach(function (id) { idMap[id] = true; });
+                    localStorage.setItem('matrix_deleted_folder_ids_v1', JSON.stringify(curDel.filter(function (x) { return !idMap[String(x)]; })));
+                }
+            }
+        } catch (e) {}
+    }
+
     function pullLibraryIndexOnly(opts) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         return loadLibIndexFromDrive().then(function (res) {
@@ -4278,6 +4324,7 @@
                 curFolders.length = 0;
                 mergedFolders.forEach(function (f) { curFolders.push(f); });
             }
+            clearDeletedFoldersSafe(remoteFolders);
             setGlobalVarSafe('libraryFolders', mergedFolders);
             try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(mergedFolders)); } catch (e) {}
             try { if (typeof window !== 'undefined' && typeof window.saveFolders === 'function') window.saveFolders(); } catch (e) {}
@@ -4410,7 +4457,9 @@
                 } else {
                     setGlobalVarSafe('libraryFolders', remoteFolders);
                 }
+                clearDeletedFoldersSafe(remoteFolders);
                 try { if (typeof localStorage !== 'undefined') localStorage.setItem('matrix_library_folders_v1', JSON.stringify(remoteFolders)); } catch (e) { }
+                try { if (typeof window !== 'undefined' && typeof window.saveFolders === 'function') window.saveFolders(); } catch (e) { }
 
                 var curDel = getGlobalVarSafe('deletedTopicIds', null);
                 if (Array.isArray(curDel)) {
@@ -4512,15 +4561,49 @@
         try { localStorage.setItem(LS_MM_UPLOADED_IMGS, JSON.stringify(map || {})); } catch (e) {}
     }
 
+    function fetchMinMapImageWithRetry(imageId, deckId, retriesLeft) {
+        var action = deckId ? 'getMinMapDeckImageFromDrive' : 'getImageFromDrive';
+        var params = deckId ? { deckId: String(deckId), imageId: String(imageId) } : { imageId: String(imageId) };
+        return getFromPrimaryGas(action, params).then(function (ir) {
+            var imgUrl = (ir && ir.data && ir.data.dataUrl) || (ir && ir.dataUrl) || '';
+            if (ir && ir.ok && imgUrl) return { ok: true, dataUrl: imgUrl };
+            if (deckId) {
+                return getFromPrimaryGas('getImageFromDrive', { imageId: String(imageId) }).then(function (ir2) {
+                    var imgUrl2 = (ir2 && ir2.data && ir2.data.dataUrl) || (ir2 && ir2.dataUrl) || '';
+                    if (ir2 && ir2.ok && imgUrl2) return { ok: true, dataUrl: imgUrl2 };
+                    return { ok: false };
+                });
+            }
+            return { ok: false };
+        }).catch(function () {
+            return { ok: false };
+        }).then(function (res) {
+            if (res && res.ok) return res;
+            if ((retriesLeft || 0) > 0) {
+                return sleepMs(250).then(function () {
+                    return fetchMinMapImageWithRetry(imageId, deckId, retriesLeft - 1);
+                });
+            }
+            return { ok: false };
+        });
+    }
+
+    function migrateDriveTo3Zones() {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        return postToPrimaryGas({ action: 'migrateDriveTo3Zones' }, 1);
+    }
+
     function pushMinMapDraftsToDrive(decksMeta, getSlideDataUrlFn, onProgress) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         var meta = Array.isArray(decksMeta) ? { activeId: (decksMeta[0] && decksMeta[0].id) || '', decks: decksMeta } : (decksMeta && typeof decksMeta === 'object' ? decksMeta : { activeId: '', decks: [] });
         var decks = Array.isArray(meta.decks) ? meta.decks : [];
         var allSlides = [];
         decks.forEach(function (dk) {
-            if (!dk) return;
-            (Array.isArray(dk.slides) ? dk.slides : []).forEach(function (s) { if (s && s.id) allSlides.push(s); });
-            (Array.isArray(dk.hsSlides) ? dk.hsSlides : []).forEach(function (s) { if (s && s.id) allSlides.push(s); });
+            if (!dk || !dk.id) return;
+            var dId = String(dk.id);
+            var dName = String(dk.name || 'Bài giảng');
+            (Array.isArray(dk.slides) ? dk.slides : []).forEach(function (s) { if (s && s.id) allSlides.push({ id: s.id, deckId: dId, deckName: dName }); });
+            (Array.isArray(dk.hsSlides) ? dk.hsSlides : []).forEach(function (s) { if (s && s.id) allSlides.push({ id: s.id, deckId: dId, deckName: dName }); });
         });
         var uploadedCache = readUploadedImgCache();
         var totalImgs = allSlides.length;
@@ -4536,15 +4619,25 @@
                     return Promise.all(slice.map(function (sl) {
                         return Promise.resolve(typeof getSlideDataUrlFn === 'function' ? getSlideDataUrlFn(sl.id) : '').then(function (url) {
                             if (!url || String(url).indexOf('data:image/') !== 0) return { ok: false };
+                            var cacheKey = sl.deckId + ':' + sl.id;
                             var sig = quickImgSig(url);
-                            if (sig && uploadedCache[sl.id] === sig) {
+                            if (sig && uploadedCache[cacheKey] === sig) {
                                 skippedImgs++;
                                 return { ok: true, skipped: true };
                             }
-                            return saveImageToDrive(sl.id, url).then(function (r) {
+                            return postToPrimaryGas({
+                                action: 'saveMinMapImageToDrive',
+                                deckId: sl.deckId,
+                                deckName: sl.deckName,
+                                imageId: sl.id,
+                                dataUrl: url
+                            }, 1).then(function (r) {
+                                if (r && r.ok && (r.folderId || r.fileId)) return r;
+                                return saveImageToDrive(sl.id, url);
+                            }).then(function (r) {
                                 if (r && r.ok) {
                                     okImgs++;
-                                    uploadedCache[sl.id] = sig;
+                                    uploadedCache[cacheKey] = sig;
                                 }
                                 return r;
                             }).catch(function () { return { ok: false }; });
@@ -4561,76 +4654,87 @@
 
         return imgChain.then(function () {
             writeUploadedImgCache(uploadedCache);
-            return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).catch(function () { return null; });
-        }).then(function (remoteRes) {
-            var remoteDecks = (remoteRes && remoteRes.ok && remoteRes.data && Array.isArray(remoteRes.data.decks))
-                ? remoteRes.data.decks.slice()
-                : [];
-            var byNormName = {};
-            remoteDecks.forEach(function (rd, idx) {
-                if (rd && rd.name) byNormName[normalizeDeckName(rd.name)] = idx;
-            });
-
-            var CHUNK = 10;
             var saveJobs = Promise.resolve();
             var pushedCount = 0;
-            var lastTargetId = String(meta.activeId || '');
-
+            var fallbackDecks = [];
             decks.forEach(function (dk) {
                 if (!dk || !dk.id) return;
-                var norm = normalizeDeckName(dk.name || 'Bài giảng');
-                var existIdx = (norm && byNormName.hasOwnProperty(norm)) ? byNormName[norm] : -1;
-                var targetId = existIdx >= 0 ? String(remoteDecks[existIdx].id || dk.id) : String(dk.id);
-                lastTargetId = targetId;
-                var gv = Array.isArray(dk.slides) ? dk.slides : [];
-                var hs = Array.isArray(dk.hsSlides) ? dk.hsSlides : [];
-                var maxLen = Math.max(gv.length, hs.length);
-                var parts = Math.max(1, Math.ceil(maxLen / CHUNK));
-                var entry = {
-                    id: targetId,
+                var deckPayload = {
+                    id: String(dk.id),
                     name: String(dk.name || 'Bài giảng').trim() || 'Bài giảng',
                     minMapMarkdown: String(dk.minMapMarkdown || ''),
-                    parts: parts,
-                    slideCount: gv.length,
-                    hsSlideCount: hs.length,
+                    slides: Array.isArray(dk.slides) ? dk.slides : [],
+                    hsSlides: Array.isArray(dk.hsSlides) ? dk.hsSlides : [],
                     updatedAt: Date.now()
                 };
-                if (existIdx >= 0) {
-                    remoteDecks[existIdx] = entry;
-                } else {
-                    byNormName[norm] = remoteDecks.length;
-                    remoteDecks.push(entry);
-                }
-                pushedCount++;
-                for (var p = 0; p < parts; p++) {
-                    (function (deckId, partIdx, gvSlice, hsSlice) {
-                        saveJobs = saveJobs.then(function () {
-                            return postToPrimaryGas({
-                                action: 'saveBankData',
-                                keyName: 'MINMAP_DECK_' + deckId + '_P' + partIdx,
-                                title: 'MinMap Draft ' + deckId + ' P' + partIdx,
-                                data: { slides: gvSlice, hsSlides: hsSlice }
-                            }, 1);
-                        });
-                    })(targetId, p, gv.slice(p * CHUNK, (p + 1) * CHUNK), hs.slice(p * CHUNK, (p + 1) * CHUNK));
-                }
+                saveJobs = saveJobs.then(function () {
+                    return postToPrimaryGas({ action: 'saveMinMapDeckToDrive', deck: deckPayload }, 1).then(function (res) {
+                        if (res && res.ok && (res.folderId || res.fileId)) {
+                            pushedCount++;
+                        } else {
+                            fallbackDecks.push(deckPayload);
+                        }
+                    });
+                });
             });
-
             return saveJobs.then(function () {
-                return postToPrimaryGas({
-                    action: 'saveBankData',
-                    keyName: 'MINMAP_DRAFTS_INDEX',
-                    title: 'MinMap Drafts Index',
-                    data: { activeId: lastTargetId, decks: remoteDecks, updatedAt: Date.now() }
-                }, 1);
-            }).then(function () {
+                if (!fallbackDecks.length) {
+                    return { ok: true, deckCount: pushedCount, imageCount: okImgs, skippedImages: skippedImgs, totalSlides: totalImgs };
+                }
+                // Compatibility fallback for GAS v18
+                return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).catch(function () { return null; }).then(function (remoteRes) {
+                    var remoteDecks = (remoteRes && remoteRes.ok && remoteRes.data && Array.isArray(remoteRes.data.decks)) ? remoteRes.data.decks.slice() : [];
+                    var byNormName = {};
+                    remoteDecks.forEach(function (rd, idx) { if (rd && rd.name) byNormName[normalizeDeckName(rd.name)] = idx; });
+                    var CHUNK = 10;
+                    var fbJobs = Promise.resolve();
+                    var lastTargetId = String(meta.activeId || '');
+                    fallbackDecks.forEach(function (dk) {
+                        var norm = normalizeDeckName(dk.name);
+                        var existIdx = (norm && byNormName.hasOwnProperty(norm)) ? byNormName[norm] : -1;
+                        var targetId = existIdx >= 0 ? String(remoteDecks[existIdx].id || dk.id) : String(dk.id);
+                        lastTargetId = targetId;
+                        var gv = dk.slides, hs = dk.hsSlides;
+                        var parts = Math.max(1, Math.ceil(Math.max(gv.length, hs.length) / CHUNK));
+                        var entry = { id: targetId, name: dk.name, minMapMarkdown: dk.minMapMarkdown, parts: parts, slideCount: gv.length, hsSlideCount: hs.length, updatedAt: Date.now() };
+                        if (existIdx >= 0) remoteDecks[existIdx] = entry;
+                        else { byNormName[norm] = remoteDecks.length; remoteDecks.push(entry); }
+                        pushedCount++;
+                        for (var p = 0; p < parts; p++) {
+                            (function (deckId, partIdx, gvSlice, hsSlice) {
+                                fbJobs = fbJobs.then(function () {
+                                    return postToPrimaryGas({ action: 'saveBankData', keyName: 'MINMAP_DECK_' + deckId + '_P' + partIdx, title: 'MinMap Draft ' + deckId + ' P' + partIdx, data: { slides: gvSlice, hsSlides: hsSlice } }, 1);
+                                });
+                            })(targetId, p, gv.slice(p * CHUNK, (p + 1) * CHUNK), hs.slice(p * CHUNK, (p + 1) * CHUNK));
+                        }
+                    });
+                    return fbJobs.then(function () {
+                        return postToPrimaryGas({ action: 'saveBankData', keyName: 'MINMAP_DRAFTS_INDEX', title: 'MinMap Drafts Index', data: { activeId: lastTargetId, decks: remoteDecks, updatedAt: Date.now() } }, 1);
+                    }).then(function () {
+                        return { ok: true, deckCount: pushedCount, imageCount: okImgs, skippedImages: skippedImgs, totalSlides: totalImgs };
+                    });
+                });
+            });
+        }).catch(function (err) {
+            return { ok: false, error: (err && err.message) || String(err) };
+        });
+    }
+
+    function listMinMapDraftsFromDrive() {
+        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
+        return getFromPrimaryGas('listMinMapDecksFromDrive').then(function (res) {
+            if (res && res.ok && Array.isArray(res.decks)) {
+                return { ok: true, activeId: '', decks: res.decks, updatedAt: res.updatedAt || Date.now() };
+            }
+            return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
+                if (!idxRes || !idxRes.ok || !idxRes.data || !Array.isArray(idxRes.data.decks)) {
+                    return { ok: false, error: (idxRes && idxRes.error) || 'Chưa có bộ Bài giảng MinMap nào trên Drive.' };
+                }
                 return {
                     ok: true,
-                    deckCount: pushedCount,
-                    totalRemoteDecks: remoteDecks.length,
-                    imageCount: okImgs,
-                    skippedImages: skippedImgs,
-                    totalImages: totalImgs
+                    activeId: String(idxRes.data.activeId || ''),
+                    decks: idxRes.data.decks.map(function (d) { return Object.assign({}, d, { source: 'legacy' }); }),
+                    updatedAt: idxRes.data.updatedAt || 0
                 };
             });
         }).catch(function (err) {
@@ -4642,72 +4746,45 @@
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
         var list = Array.isArray(selectedIds) ? selectedIds.filter(Boolean) : (selectedIds ? [selectedIds] : []);
         if (!list.length) return Promise.resolve({ ok: false, error: 'Chưa chọn bài giảng nào để xóa.' });
-        var selMap = {};
-        var selNorm = {};
-        list.forEach(function (v) {
-            var s = String(v || '').trim();
-            if (s) { selMap[s] = true; selNorm[normalizeDeckName(s)] = true; }
-        });
-        return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
-            if (!idxRes || !idxRes.ok || !idxRes.data || !Array.isArray(idxRes.data.decks)) {
-                return { ok: false, error: (idxRes && idxRes.error) || 'Chưa có danh sách bài giảng MinMap trên Drive.' };
+        return postToPrimaryGas({ action: 'deleteMinMapDeckFromDrive', deckIds: list }, 1).then(function (delRes) {
+            if (delRes && delRes.ok) {
+                return listMinMapDraftsFromDrive().then(function (listRes) {
+                    return {
+                        ok: true,
+                        deletedCount: Number(delRes.deletedCount || list.length),
+                        trashedFolders: delRes.trashedFolders || [],
+                        remainingDecks: (listRes && listRes.ok && Array.isArray(listRes.decks)) ? listRes.decks : []
+                    };
+                });
             }
-            var idxData = idxRes.data;
-            var removedMetas = [];
-            var remainingDecks = [];
-            idxData.decks.forEach(function (dk) {
-                if (!dk) return;
-                var idMatch = dk.id && selMap[String(dk.id)];
-                var nameMatch = dk.name && selNorm[normalizeDeckName(dk.name)];
-                if (idMatch || nameMatch) removedMetas.push(dk);
-                else remainingDecks.push(dk);
-            });
-            if (!removedMetas.length) {
-                return { ok: true, deletedCount: 0, remainingDecks: remainingDecks };
-            }
-            var curActive = String(idxData.activeId || '');
-            var keepActive = remainingDecks.some(function (d) { return d && String(d.id) === curActive; });
-            var nextActive = keepActive ? curActive : (remainingDecks[0] ? String(remainingDecks[0].id) : '');
-            return postToPrimaryGas({
-                action: 'saveBankData',
-                keyName: 'MINMAP_DRAFTS_INDEX',
-                data: { activeId: nextActive, decks: remainingDecks, updatedAt: Date.now() }
-            }, 1).then(function (saveRes) {
-                if (!saveRes || !saveRes.ok) {
-                    return { ok: false, error: (saveRes && saveRes.error) || 'Không cập nhật được mục lục MinMap trên Drive.' };
+            // Fallback for older GAS v18
+            var selMap = {};
+            var selNorm = {};
+            list.forEach(function (v) { var s = String(v || '').trim(); if (s) { selMap[s] = true; selNorm[normalizeDeckName(s)] = true; } });
+            return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
+                if (!idxRes || !idxRes.ok || !idxRes.data || !Array.isArray(idxRes.data.decks)) {
+                    return { ok: false, error: (delRes && delRes.error) || 'Không xóa được bài giảng trên Drive.' };
                 }
-                var cleanupJobs = [];
-                removedMetas.forEach(function (dk) {
-                    var parts = Math.max(1, Number(dk.parts || 1));
-                    for (var p = 0; p < parts; p++) {
-                        cleanupJobs.push(postToPrimaryGas({
-                            action: 'saveBankData',
-                            keyName: 'MINMAP_DECK_' + String(dk.id) + '_P' + p,
-                            data: null
-                        }, 1).catch(function () { return null; }));
-                    }
+                var idxData = idxRes.data;
+                var removedCount = 0;
+                var remainingDecks = [];
+                idxData.decks.forEach(function (dk) {
+                    if (!dk) return;
+                    if ((dk.id && selMap[String(dk.id)]) || (dk.name && selNorm[normalizeDeckName(dk.name)])) removedCount++;
+                    else remainingDecks.push(dk);
                 });
-                return Promise.all(cleanupJobs).then(function () {
-                    return { ok: true, deletedCount: removedMetas.length, remainingDecks: remainingDecks };
+                var curActive = String(idxData.activeId || '');
+                var nextActive = remainingDecks.some(function (d) { return d && String(d.id) === curActive; }) ? curActive : (remainingDecks[0] ? String(remainingDecks[0].id) : '');
+                return postToPrimaryGas({
+                    action: 'saveBankData',
+                    keyName: 'MINMAP_DRAFTS_INDEX',
+                    title: 'MinMap Drafts Index',
+                    data: { activeId: nextActive, decks: remainingDecks, updatedAt: Date.now() }
+                }, 1).then(function (sv) {
+                    if (!sv || !sv.ok) return { ok: false, error: (sv && sv.error) || 'Lỗi cập nhật mục lục Drive.' };
+                    return { ok: true, deletedCount: removedCount, remainingDecks: remainingDecks };
                 });
             });
-        }).catch(function (err) {
-            return { ok: false, error: (err && err.message) || String(err) };
-        });
-    }
-
-    function listMinMapDraftsFromDrive() {
-        if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
-        return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
-            if (!idxRes || !idxRes.ok || !idxRes.data || !Array.isArray(idxRes.data.decks)) {
-                return { ok: false, error: (idxRes && idxRes.error) || 'Chưa có bộ Bài giảng MinMap nào trên Drive.' };
-            }
-            return {
-                ok: true,
-                activeId: String(idxRes.data.activeId || ''),
-                decks: idxRes.data.decks,
-                updatedAt: idxRes.data.updatedAt || 0
-            };
         }).catch(function (err) {
             return { ok: false, error: (err && err.message) || String(err) };
         });
@@ -4715,19 +4792,18 @@
 
     function pullMinMapDraftsFromDrive(putSlideDataUrlFn, onProgress, selectedIds) {
         if (!isGasEnabled()) return Promise.resolve({ ok: false, error: 'Chưa gắn link Apps Script.' });
-        return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DRAFTS_INDEX' }).then(function (idxRes) {
-            if (!idxRes || !idxRes.ok || !idxRes.data || !Array.isArray(idxRes.data.decks)) {
+        return listMinMapDraftsFromDrive().then(function (idxRes) {
+            if (!idxRes || !idxRes.ok || !Array.isArray(idxRes.decks) || !idxRes.decks.length) {
                 return { ok: false, error: (idxRes && idxRes.error) || 'Chưa có bộ Bài giảng MinMap nào trên Drive.' };
             }
-            var idxData = idxRes.data;
             var selMap = null;
             if (Array.isArray(selectedIds)) {
                 selMap = {};
                 selectedIds.forEach(function (sid) { selMap[String(sid)] = true; });
             }
             var targetMetas = selMap
-                ? idxData.decks.filter(function (dk) { return dk && dk.id && selMap[String(dk.id)]; })
-                : idxData.decks;
+                ? idxRes.decks.filter(function (dk) { return dk && dk.id && selMap[String(dk.id)]; })
+                : idxRes.decks;
             if (!targetMetas.length) {
                 return { ok: false, error: 'Chưa chọn bài giảng nào để kéo từ Drive.' };
             }
@@ -4736,36 +4812,49 @@
 
             targetMetas.forEach(function (dkMeta) {
                 if (!dkMeta || !dkMeta.id) return;
-                var parts = Math.max(1, Number(dkMeta.parts || 1));
-                var deckObj = {
-                    id: String(dkMeta.id),
-                    name: String(dkMeta.name || 'Bài giảng'),
-                    minMapMarkdown: String(dkMeta.minMapMarkdown || ''),
-                    slides: [],
-                    hsSlides: []
-                };
-                for (var p = 0; p < parts; p++) {
-                    (function (dObj, partIdx) {
-                        deckChain = deckChain.then(function () {
-                            return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DECK_' + dObj.id + '_P' + partIdx }).then(function (pRes) {
-                                if (pRes && pRes.ok && pRes.data) {
-                                    if (Array.isArray(pRes.data.slides)) dObj.slides = dObj.slides.concat(pRes.data.slides);
-                                    if (Array.isArray(pRes.data.hsSlides)) dObj.hsSlides = dObj.hsSlides.concat(pRes.data.hsSlides);
-                                }
-                            });
+                if (dkMeta.source === 'folder') {
+                    deckChain = deckChain.then(function () {
+                        return getFromPrimaryGas('pullMinMapDeckFromDrive', { deckId: String(dkMeta.id) }).then(function (dRes) {
+                            if (dRes && dRes.ok && dRes.deck) {
+                                dRes.deck._deckFolderId = dkMeta.id;
+                                outDecks.push(dRes.deck);
+                            }
                         });
-                    })(deckObj, p);
+                    });
+                } else {
+                    var parts = Math.max(1, Number(dkMeta.parts || 1));
+                    var deckObj = {
+                        id: String(dkMeta.id),
+                        name: String(dkMeta.name || 'Bài giảng'),
+                        minMapMarkdown: String(dkMeta.minMapMarkdown || ''),
+                        slides: [],
+                        hsSlides: []
+                    };
+                    for (var p = 0; p < parts; p++) {
+                        (function (dObj, partIdx) {
+                            deckChain = deckChain.then(function () {
+                                return getFromPrimaryGas('getBankData', { keyName: 'MINMAP_DECK_' + dObj.id + '_P' + partIdx }).then(function (pRes) {
+                                    if (pRes && pRes.ok && pRes.data) {
+                                        if (Array.isArray(pRes.data.slides)) dObj.slides = dObj.slides.concat(pRes.data.slides);
+                                        if (Array.isArray(pRes.data.hsSlides)) dObj.hsSlides = dObj.hsSlides.concat(pRes.data.hsSlides);
+                                    }
+                                });
+                            });
+                        })(deckObj, p);
+                    }
+                    deckChain = deckChain.then(function () { outDecks.push(deckObj); });
                 }
-                deckChain = deckChain.then(function () { outDecks.push(deckObj); });
             });
 
             return deckChain.then(function () {
-                var allIds = [];
+                var allItems = [];
                 outDecks.forEach(function (dk) {
-                    dk.slides.forEach(function (s) { if (s && s.id) allIds.push(s.id); });
-                    dk.hsSlides.forEach(function (s) { if (s && s.id) allIds.push(s.id); });
+                    var dId = dk._deckFolderId ? String(dk.id) : '';
+                    (Array.isArray(dk.slides) ? dk.slides : []).forEach(function (s) { if (s && s.id) allItems.push({ id: s.id, deckId: dId }); });
+                    (Array.isArray(dk.hsSlides) ? dk.hsSlides : []).forEach(function (s) { if (s && s.id) allItems.push({ id: s.id, deckId: dId }); });
+                    delete dk._deckFolderId;
                 });
-                var total = allIds.length;
+                var total = allItems.length;
                 var done = 0;
                 var loadedImgs = 0;
                 var imgChain = Promise.resolve();
@@ -4775,31 +4864,31 @@
                     (function (slice, isFirst) {
                         imgChain = imgChain.then(function () {
                             return (isFirst ? Promise.resolve() : sleepMs(120)).then(function () {
-                            return Promise.all(slice.map(function (sid) {
-                                return loadImageFromDrive(sid).then(function (ir) {
-                                    var imgUrl = (ir && ir.data && ir.data.dataUrl) || (ir && ir.dataUrl) || '';
-                                    if (ir && ir.ok && imgUrl && typeof putSlideDataUrlFn === 'function') {
-                                        loadedImgs++;
-                                        return Promise.resolve(putSlideDataUrlFn(sid, imgUrl));
+                                return Promise.all(slice.map(function (item) {
+                                    return fetchMinMapImageWithRetry(item.id, item.deckId, 2).then(function (ir) {
+                                        if (ir && ir.ok && ir.dataUrl && typeof putSlideDataUrlFn === 'function') {
+                                            loadedImgs++;
+                                            return Promise.resolve(putSlideDataUrlFn(item.id, ir.dataUrl));
+                                        }
+                                    }).catch(function () {});
+                                })).then(function () {
+                                    done += slice.length;
+                                    if (typeof onProgress === 'function') {
+                                        try { onProgress({ phase: 'images', done: done, total: total }); } catch (e) {}
                                     }
-                                }).catch(function () {});
-                            })).then(function () {
-                                done += slice.length;
-                                if (typeof onProgress === 'function') {
-                                    try { onProgress({ phase: 'images', done: done, total: total }); } catch (e) {}
-                                }
-                            });
+                                });
                             });
                         });
-                    })(allIds.slice(i, i + IMG_BATCH), i === 0);
+                    })(allItems.slice(i, i + IMG_BATCH), i === 0);
                 }
 
                 return imgChain.then(function () {
                     return {
                         ok: true,
-                        data: { activeId: idxData.activeId || (outDecks[0] && outDecks[0].id) || '', decks: outDecks },
+                        data: { activeId: idxRes.activeId || (outDecks[0] && outDecks[0].id) || '', decks: outDecks },
                         deckCount: outDecks.length,
-                        imageCount: loadedImgs
+                        imageCount: loadedImgs,
+                        totalImages: total
                     };
                 });
             });
@@ -5053,6 +5142,7 @@
         pullLibraryFromDrive: pullLibraryFromDrive,
         savePubIndexToDrive: savePubIndexToDrive,
         loadPubIndexFromDrive: loadPubIndexFromDrive,
+        migrateDriveTo3Zones: migrateDriveTo3Zones,
         deleteMinMapDraftsFromDrive: deleteMinMapDraftsFromDrive,
         listMinMapDraftsFromDrive: listMinMapDraftsFromDrive,
         normalizeDeckName: normalizeDeckName,
