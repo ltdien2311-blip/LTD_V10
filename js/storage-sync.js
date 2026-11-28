@@ -756,10 +756,73 @@
     };
     LV.reveal = function () { if (LV.rev) return; LV.rev = true; clearInterval(LV.tm); all().forEach(s => { LV.upTc(s); calc(s); }); all().forEach(s => LV.sendRev(s)); LV.upd(); };
     LV.next = function () { if (LV.qi < LV.qs.length - 1) { LV.qi++; LV.showQ(); } else LV.finish(); };
+    LV.saveLiveResults = function () {
+        if (LV._resultsSynced || !LV.topic || !LV.topic.id) return;
+        LV._resultsSynced = true;
+        try {
+            var tid = String(LV.topic.id);
+            var cur = {};
+            try { cur = JSON.parse(localStorage.getItem('matrix_student_results_v1') || '{}') || {}; } catch (e) { cur = {}; }
+            if (!Array.isArray(cur[tid])) cur[tid] = [];
+            var accList = (window.HSAuth && typeof window.HSAuth.list === 'function') ? window.HSAuth.list() : [];
+            var clsList = [];
+            try { clsList = JSON.parse(localStorage.getItem('matrix_classes_v1') || '[]') || []; } catch (eCls) { clsList = []; }
+            if (!Array.isArray(clsList)) clsList = [];
+            var normNm = function (s) {
+                return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+            };
+            all().forEach(function (s) {
+                var nKey = normNm(s.name);
+                var matched = accList.filter(function (a) { return a && normNm(a.name) === nKey; });
+                var stuCls = matched.length === 1 ? String(matched[0].cls || '') : '';
+                var stuUser = matched.length === 1 ? String(matched[0].u || '') : '';
+                var clsIds = [];
+                if (!stuCls && clsList.length) {
+                    var clsHits = [];
+                    clsList.forEach(function (c) {
+                        if (c && Array.isArray(c.students) && c.students.some(function (st) { return st && normNm(st.name) === nKey; })) {
+                            clsHits.push(c);
+                        }
+                    });
+                    if (clsHits.length === 1) {
+                        stuCls = String(clsHits[0].name || '');
+                        clsIds = [clsHits[0].id];
+                    }
+                }
+                var rid = 'live_' + String(LV.pid || 'session') + '_' + String(s.cid || Math.random().toString(36).slice(2, 6));
+                var rec = {
+                    id: rid,
+                    mode: 'live',
+                    studentName: String(s.name || 'Học sinh'),
+                    studentClass: stuCls,
+                    studentUser: stuUser,
+                    classIds: clsIds.length ? clsIds : undefined,
+                    scorePercent: LV.qs.length ? Math.round(((s.ok || 0) / LV.qs.length) * 100) : 0,
+                    score10: Math.round(Number(s.sc || 0) * 100) / 100,
+                    firstTryCorrect: Number(s.ok || 0),
+                    totalQuestions: Number(LV.qs.length || 0),
+                    submittedAt: new Date().toLocaleString('vi-VN'),
+                    submittedTs: Date.now(),
+                    detail: null
+                };
+                if (!cur[tid].some(function (x) { return x && x.id === rid; })) {
+                    cur[tid].unshift(rec);
+                }
+                try {
+                    if (window.GasBridge && typeof GasBridge.submitResult === 'function') {
+                        GasBridge.submitResult(tid, rec, LV.topic.subtitle || '', { maxJitterMs: 1200 });
+                    }
+                } catch (e2) {}
+            });
+            try { localStorage.setItem('matrix_student_results_v1', JSON.stringify(cur)); } catch (e3) {}
+            try { if (typeof window.renderLibraryList === 'function') window.renderLibraryList(); } catch (e4) {}
+        } catch (e) {}
+    };
     LV.finish = function () {
         if (LV.phase === 'done') return; clearInterval(LV.tm);
         all().forEach(s => { if (!s.done) { s.done = true; s.at = Date.now() - LV.t0; } calc(s); });
         all().forEach(s => LV.sendRes(s, true));
+        LV.saveLiveResults();
         LV.phase = 'done'; LV.view = 'podium'; LV.desc = true; LV.draw();
     };
 
@@ -3358,6 +3421,7 @@
             totalQuestions: Number(r.totalQuestions || 0),
             durationSec: Number(r.durationSec || 0),
             detail: {
+                mode: r.mode || 'exam',
                 scorePercent: r.scorePercent,
                 score10: r.score10,
                 firstTryCorrect: r.firstTryCorrect,
@@ -3454,6 +3518,7 @@
                 var det = (it.detail && typeof it.detail === 'object') ? it.detail : {};
                 var rec = {
                     id: String(it.submitId),
+                    mode: String(det.mode || 'exam'),
                     studentName: String(it.studentName || 'Học sinh'),
                     studentClass: String(det.studentClass || it.className || ''),
                     studentUser: String(it.sbd || ''),
@@ -5357,7 +5422,7 @@
             chain = chain.then(function () {
                 var salt = rndSalt();
                 return hashPw(salt, pass).then(function (ph) {
-                    var rec = { u: user, name: name, cls: cls, salt: salt, ph: ph, ts: Date.now(), locked: false };
+                    var rec = { u: user, name: name, cls: cls, salt: salt, ph: ph, plainPw: pass, ts: Date.now(), locked: false };
                     db.users[user] = rec;
                     created.push({ u: user, name: name, cls: cls, defaultPass: pass });
                     return cloudPut(user, rec);
@@ -5381,7 +5446,7 @@
         if (!acc || acc.deleted) return Promise.resolve({ ok: false, error: 'Không tìm thấy tài khoản.' });
         var salt = rndSalt();
         return hashPw(salt, pass).then(function (ph) {
-            acc.salt = salt; acc.ph = ph; acc.ts = Date.now();
+            acc.salt = salt; acc.ph = ph; acc.plainPw = pass; acc.ts = Date.now();
             save(db);
             return cloudPut(user, acc).then(function () { return syncAccountsBoth(); }).then(function () { return { ok: true, u: user }; });
         });
@@ -5411,27 +5476,31 @@
             .sort(function (a, b) { return String(a.cls || '').localeCompare(String(b.cls || '')) || String(a.name || '').localeCompare(String(b.name || '')); });
     }
 
-    function exportAccountsExcel(customRows) {
-        var rows = (Array.isArray(customRows) && customRows.length) ? customRows : listAccounts().map(function (a) {
-            return { u: a.u, name: a.name, cls: a.cls, defaultPass: '(Đã mã hóa)', status: a.locked ? 'Đang khóa' : 'Hoạt động' };
+    function exportAccountsExcel(customRows, filterClass) {
+        var clsFilter = String(filterClass || '').trim();
+        var src = (Array.isArray(customRows) && customRows.length) ? customRows : listAccounts().map(function (a) {
+            return { u: a.u, name: a.name, cls: a.cls, defaultPass: a.plainPw || '(Chưa lưu MK - hãy Reset MK)', status: a.locked ? 'Đang khóa' : 'Hoạt động' };
         });
+        var rows = clsFilter ? src.filter(function (r) { return String(r.cls || '').trim().toLowerCase() === clsFilter.toLowerCase(); }) : src;
         if (!rows.length) return false;
         var aoa = [['STT', 'Họ và tên', 'Lớp', 'Tên đăng nhập', 'Mật khẩu', 'Trạng thái']];
         rows.forEach(function (r, idx) {
-            aoa.push([idx + 1, r.name || '', r.cls || '', r.u || '', r.defaultPass || '(Đã mã hóa)', r.status || 'Hoạt động']);
+            aoa.push([idx + 1, r.name || '', r.cls || '', r.u || '', r.defaultPass || '(Chưa lưu MK - hãy Reset MK)', r.status || 'Hoạt động']);
         });
+        var safeCls = clsFilter ? clsFilter.replace(/[^a-zA-Z0-9_-]+/g, '') : 'HS';
+        var baseName = 'Danh_Sach_Tai_Khoan_' + (safeCls || 'HS');
         if (window.XLSX && XLSX.utils && XLSX.writeFile) {
             var wb = XLSX.utils.book_new();
             var ws = XLSX.utils.aoa_to_sheet(aoa);
-            XLSX.utils.book_append_sheet(wb, ws, 'TaiKhoan_HS');
-            XLSX.writeFile(wb, 'Danh_Sach_Tai_Khoan_HS.xlsx');
+            XLSX.utils.book_append_sheet(wb, ws, 'TaiKhoan_' + (safeCls || 'HS'));
+            XLSX.writeFile(wb, baseName + '.xlsx');
             return true;
         }
         var csv = '\uFEFF' + aoa.map(function (r) { return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(','); }).join('\n');
         var blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
         var a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'Danh_Sach_Tai_Khoan_HS.csv';
+        a.download = baseName + '.csv';
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         return true;
     }
@@ -5451,7 +5520,7 @@
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; });
     }
 
-    function openManager() {
+    function openManager(preselectCls) {
         try {
             if (window.LTDLibBridge && typeof window.LTDLibBridge.getVar === 'function' && window.LTDLibBridge.getVar('isStudentMode')) {
                 return;
@@ -5486,7 +5555,8 @@
             '      <textarea id="hs-mgr-bulk-txt" rows="4" style="width:100%;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:13px" placeholder="Mỗi dòng 1 học sinh: Họ và tên (hoặc Họ và tên | Lớp)..."></textarea>' +
             '      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">' +
             '        <button type="button" id="hs-mgr-create-btn" style="padding:9px 14px;border-radius:10px;border:none;background:linear-gradient(90deg,#4f46e5,#2563eb);color:#fff;font-weight:900;cursor:pointer">⚡ Cấp tài khoản hàng loạt</button>' +
-            '        <button type="button" id="hs-mgr-export-btn" style="padding:9px 14px;border-radius:10px;border:none;background:#059669;color:#fff;font-weight:900;cursor:pointer">📥 Xuất Excel danh sách</button>' +
+            '        <select id="hs-mgr-export-cls" style="padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:10px;font-weight:800;font-size:13px"></select>' +
+            '        <button type="button" id="hs-mgr-export-btn" style="padding:9px 14px;border-radius:10px;border:none;background:#059669;color:#fff;font-weight:900;cursor:pointer">📥 Xuất Excel theo lớp</button>' +
             '        <span id="hs-mgr-status" style="font-size:13px;font-weight:800;color:#0369a1"></span>' +
             '      </div>' +
             '    </div>' +
@@ -5503,9 +5573,11 @@
 
         function renderList() {
             var q = noAccentSlug(($('hs-mgr-search') && $('hs-mgr-search').value) || '');
+            var clsFilter = ($('hs-mgr-export-cls') && $('hs-mgr-export-cls').value) || '';
             var all = listAccounts();
-            var cntEl = $('hs-mgr-count'); if (cntEl) cntEl.textContent = String(all.length);
-            var filtered = all.filter(function (a) {
+            var byCls = clsFilter ? all.filter(function (a) { return String(a.cls || '').trim().toLowerCase() === clsFilter.toLowerCase(); }) : all;
+            var cntEl = $('hs-mgr-count'); if (cntEl) cntEl.textContent = String(byCls.length);
+            var filtered = byCls.filter(function (a) {
                 if (!q) return true;
                 return noAccentSlug(a.name + a.cls + a.u).indexOf(q) >= 0;
             });
@@ -5587,8 +5659,25 @@
                 }
             });
         };
+        function refreshExportClsOpts(preferCls) {
+            var sel = $('hs-mgr-export-cls');
+            if (!sel) return;
+            var prev = preferCls || sel.value || '';
+            var set = {};
+            listAccounts().forEach(function (a) { if (a && a.cls) set[String(a.cls).trim()] = 1; });
+            getClassesSafe().forEach(function (c) { if (c && c.name) set[String(c.name).trim()] = 1; });
+            var names = Object.keys(set).sort();
+            sel.innerHTML = '<option value="">Tất cả các lớp</option>' + names.map(function (n) {
+                return '<option value="' + escH(n) + '">' + escH(n) + '</option>';
+            }).join('');
+            if (prev && names.indexOf(prev) >= 0) sel.value = prev;
+        }
+        refreshExportClsOpts(preselectCls || '');
+        if ($('hs-mgr-export-cls')) $('hs-mgr-export-cls').onchange = function () { renderList(); };
         $('hs-mgr-export-btn').onclick = function () {
-            exportAccountsExcel(lastBatchCreated.length ? lastBatchCreated : null);
+            var clsVal = ($('hs-mgr-export-cls') && $('hs-mgr-export-cls').value) || '';
+            var ok = exportAccountsExcel(null, clsVal);
+            if (!ok && $('hs-mgr-status')) $('hs-mgr-status').textContent = '⚠️ Lớp đã chọn chưa có tài khoản nào để xuất.';
         };
         $('hs-mgr-list').onclick = function (e) {
             var btn = e.target && e.target.closest ? e.target.closest('button[data-act]') : null;
@@ -5612,6 +5701,8 @@
         submit: function () { doLogin(); },
         hasAccount: function (u) { var a = load().users[normUser(u)]; return !!(a && !a.deleted); },
         get: function (u) { var a = load().users[normUser(u)]; return (a && !a.deleted) ? a : null; },
+        list: listAccounts,
+        exportAccountsExcel: exportAccountsExcel,
         bulkCreate: bulkCreate,
         resetPassword: resetPassword,
         toggleLock: toggleLock,

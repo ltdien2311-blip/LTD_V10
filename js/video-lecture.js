@@ -250,7 +250,7 @@
                 '</div>' +
               '</div>' +
               '<div id="vl-qr-box" style="display:none;text-align:center;margin-bottom:12px"></div>' +
-              '<label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;font-weight:700;color:#0f172a;cursor:pointer"><input type="checkbox" id="vl-publish-chk"' + ((topic.isPublished === true && mode !== 'locked') ? ' checked' : '') + '> 🚀 Xuất bản ra Thư viện học sinh</label>' +
+              '<div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:10px">ℹ️ Thiết lập Bài giảng độc lập hoàn toàn với trạng thái Xuất bản đề thi ngoài Thư viện.</div>' +
               '<div style="display:flex;gap:8px;justify-content:flex-end">' +
                 '<button type="button" id="vl-cancel" class="px-4 py-2 rounded-xl font-bold bg-slate-100">Đóng</button>' +
                 '<button type="button" id="vl-save" class="px-4 py-2 rounded-xl font-black text-white bg-emerald-600">💾 Lưu &amp; Đồng bộ Cloud</button>' +
@@ -272,8 +272,7 @@
             });
             ov.querySelector('#vl-smart-picker').style.display = scope === 'selected' ? 'block' : 'none';
             ov.querySelector('#vl-sel-cnt').textContent = scope === 'selected' ? '(' + picked.length + ' HS)' : '';
-            var pChk = ov.querySelector('#vl-publish-chk');
-            if (pChk && mode === 'locked') pChk.checked = false;
+            /* MT-54: Tách độc lập - không tự tắt xuất bản khi khóa bài giảng */
         }
 
         function paintTokens() {
@@ -393,8 +392,7 @@
         ov.querySelector('#vl-close').onclick = closeM;
         ov.querySelector('#vl-cancel').onclick = closeM;
         ov.querySelector('#vl-save').onclick = function () {
-            var pubChk = ov.querySelector('#vl-publish-chk');
-            topic.isPublished = !!(pubChk && pubChk.checked && mode !== 'locked');
+            /* MT-54: Giữ nguyên topic.isPublished & topic.publishScope hiện có */
             topic.videoMode = mode;
             topic.videoTargetScope = scope;
             topic.videoTargetStudents = picked.slice();
@@ -425,7 +423,7 @@
 
             closeM();
             syncPromise.then(function () {
-                var pubStatus = topic.isPublished ? 'Đã xuất bản ra Thư viện học sinh.' : 'Đã ngắt xuất bản khỏi Thư viện học sinh.';
+                var pubStatus = topic.isPublished ? 'Đề thi vẫn giữ nguyên trạng thái Xuất bản.' : 'Đề thi hiện đang ở chế độ Chưa xuất bản (giữ nguyên).';
                 try {
                     if (global.LTDLibBridge && typeof global.LTDLibBridge.notify === 'function') global.LTDLibBridge.notify('Đã lưu bài giảng', 'Đã cập nhật ' + videos.length + ' video. ' + pubStatus, 'success');
                     else if (typeof global.showModal === 'function') global.showModal('Đã lưu bài giảng', 'Đã cập nhật ' + videos.length + ' video. ' + pubStatus, 'success');

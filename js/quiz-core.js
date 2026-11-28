@@ -3499,6 +3499,7 @@ const COLS = 24;
 
             studentResultsByTopic[targetKey].unshift({
                 id: 'res_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+                mode: 'exam',
                 studentName: studentName,
                 studentClass: studentClass,
                 studentUser: (function () { try { const s = JSON.parse(localStorage.getItem('matrix_active_session_v1') || 'null'); return (s && s.username) || ''; } catch (e) { return ''; } })(),
@@ -14093,6 +14094,8 @@ const COLS = 24;
             cmResultsOf(a.topicId).forEach(r => {
                 if (!r || cmNormLoose(r.studentName) !== ns) return;
                 if (!cmResultInClass(cls, r, student, a)) return;
+                const rMode = (r.mode === 'live') ? 'live' : 'exam';
+                if (typeof cmModeFilter === 'string' && cmModeFilter !== 'all' && rMode !== cmModeFilter) return;
                 let val = cmScoreNum(r.score10);
                 if (val === null && r.scorePercent != null) val = r.scorePercent / 10;
                 out.push({ r, val, ts: r.submittedTs || 0, late: Boolean(a.dueAt && r.submittedTs && r.submittedTs > a.dueAt) });
@@ -14120,7 +14123,7 @@ const COLS = 24;
                 const isPick = pickB && pickB.r === x.r;
                 const when = x.r.submittedAt || (x.ts ? cmFmtDate(x.ts) : '');
                 return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:12px;margin-top:6px;background:${isPick ? '#ecfeff' : '#f8fafc'};border:2px solid ${isPick ? '#22d3ee' : '#e2e8f0'}">
-                    <div style="min-width:0"><b style="color:#0f766e">Lần ${no}</b>${no === all.length ? ' <span style="font-size:12px;font-weight:900;color:#4f46e5">(mới nhất)</span>' : ''}${isPick ? ' <span style="font-size:12px;font-weight:900;color:#0891b2">✔ đang tính</span>' : ''}
+                    <div style="min-width:0"><b style="color:#0f766e">Lần ${no}</b> <span style="font-size:11px;font-weight:800;padding:1px 6px;border-radius:6px;background:${x.r.mode === 'live' ? '#fae8ff;color:#86198f' : '#e0f2fe;color:#0369a1'}">${x.r.mode === 'live' ? '🎮 Chơi trực tiếp' : '📝 Chọn làm bài'}</span>${no === all.length ? ' <span style="font-size:12px;font-weight:900;color:#4f46e5">(mới nhất)</span>' : ''}${isPick ? ' <span style="font-size:12px;font-weight:900;color:#0891b2">✔ đang tính</span>' : ''}
                     <div style="font-size:13px;font-weight:700;color:#64748b">${_escHtml(when)}${x.late ? ' ⏰ trễ hạn' : ''}</div></div>
                     <span class="cm-chip ${cmScoreColor(x.val)}" style="font-size:16px">${cmFmt(x.val)}</span></div>`;
             }).join('');
@@ -14155,6 +14158,17 @@ const COLS = 24;
         }
         function cmSortedAssignments(cls) { return cls.assignments.slice().sort((a, b) => (b.assignedAt || 0) - (a.assignedAt || 0)); }
 
+        function cmSyncLatestResults(silent) {
+            try {
+                if (window.GasBridge && GasBridge.isGasEnabled && GasBridge.isGasEnabled() && typeof GasBridge.mergeGasResultsToLocal === 'function') {
+                    return GasBridge.mergeGasResultsToLocal().then(function () {
+                        loadStudentResultsFromStorage();
+                        if (cmById('class-modal') && !cmById('class-modal').classList.contains('hidden')) cmRender();
+                    }).catch(function () {});
+                }
+            } catch (e) {}
+            return Promise.resolve();
+        }
         function openClassManager() {
             if (isStudentMode) return;
             cmLoad();
@@ -14162,6 +14176,7 @@ const COLS = 24;
             cmView = 'list';
             cmClassId = null;
             cmRender();
+            cmSyncLatestResults(true);
             const m = cmById('class-modal');
             if (!m) return;
             m.classList.remove('hidden');
@@ -14322,6 +14337,11 @@ const COLS = 24;
                         <p class="text-[11px] font-bold text-slate-500 mt-2 leading-snug">Cột “Họ và tên” (hoặc “Họ đệm” + “Tên”), cột “Ghi chú” tùy chọn. Tên trùng sẽ được bỏ qua. Không có dòng tiêu đề vẫn nhập được.</p>
                     </div>
                     <div class="cm-card p-4">
+                        <div class="text-sm font-black text-teal-800 uppercase mb-2">🔑 Tài khoản &amp; Mật khẩu lớp ${_escHtml(cls.name)}</div>
+                        <div class="flex flex-wrap gap-2 mb-3">
+                            <button type="button" onclick="if(window.HSAuth){if(!HSAuth.exportAccountsExcel(null,'${_escHtml(String(cls.name).replace(/'/g, "\\'"))}'))HSAuth.openManager('${_escHtml(String(cls.name).replace(/'/g, "\\'"))}');}" class="cm-btn bg-emerald-600 text-white">📥 Xuất TK &amp; MK lớp này</button>
+                            <button type="button" onclick="if(window.HSAuth)HSAuth.openManager('${_escHtml(String(cls.name).replace(/'/g, "\\'"))}')" class="cm-btn bg-indigo-600 text-white">👥 Quản lý TK lớp</button>
+                        </div>
                         <div class="text-sm font-black text-teal-800 uppercase mb-2">➕ Thêm từng học sinh</div>
                         <div class="flex gap-2">
                             <input id="cm-new-student" type="text" placeholder="Họ và tên học sinh" class="cm-inp flex-1" onkeydown="if(event.key==='Enter'){event.preventDefault();cmAddStudent();}">
@@ -14654,6 +14674,8 @@ const COLS = 24;
             });
             return out;
         }
+        let cmModeFilter = 'all';
+        function cmSetModeFilter(m) { cmModeFilter = m || 'all'; cmRender(); }
         function cmGradesHtml(cls) {
             if (!cls.assignments.length) return '<div class="cm-card p-8 text-center text-sm font-bold text-slate-500">Chưa giao đề nào. Hãy sang thẻ <b>📤 Giao đề</b> để giao đề cho lớp.</div>';
             if (!cls.students.length) return '<div class="cm-card p-8 text-center text-sm font-bold text-slate-500">Lớp chưa có học sinh. Hãy thêm ở thẻ <b>👥 Học sinh</b>.</div>';
@@ -14680,8 +14702,8 @@ const COLS = 24;
                     <div class="space-y-1.5">${un.slice(0, 30).map(({ a, r }) => `<div class="flex flex-wrap items-center gap-2 text-sm font-bold"><span>${_escHtml(r.studentName)}</span><span class="text-slate-400">•</span><span class="text-slate-600">${_escHtml(cmTopicTitle(a))}</span><span class="cm-chip ${cmScoreColor(cmScoreNum(r.score10))}">${_escHtml(String(r.score10 == null ? '' : r.score10))}</span><button type="button" class="cm-btn bg-teal-50 text-teal-700 border-teal-300" style="padding:2px 10px" onclick="cmAddUnmatched('${_escHtml(String(r.studentName).replace(/'/g, "\\'"))}')">+ Thêm vào lớp</button></div>`).join('')}</div>
                 </div>` : '';
             return `<div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-                    <div class="text-xs font-bold text-slate-500"><label class="mr-1">Điểm tính theo:</label><select class="cm-inp cursor-pointer" onchange="cmSetScoreMode(this.value)"><option value="latest" ${cmScoreMode === 'latest' ? 'selected' : ''}>Lần làm mới nhất</option><option value="best" ${cmScoreMode === 'best' ? 'selected' : ''}>Điểm cao nhất</option><option value="first" ${cmScoreMode === 'first' ? 'selected' : ''}>Lần đầu tiên</option></select> • Bấm vào ô điểm để xem từng lần làm • ⏰ = nộp sau hạn • màu: <span class="cm-chip bg-green-100 text-green-800">≥ 8</span> <span class="cm-chip bg-sky-100 text-sky-800">6,5–8</span> <span class="cm-chip bg-amber-100 text-amber-800">5–6,5</span> <span class="cm-chip bg-red-100 text-red-700">&lt; 5</span></div>
-                    <button type="button" onclick="cmExportGrades()" class="cm-btn bg-emerald-600 text-white" style="font-size:14px;padding:8px 18px">⬇️ Xuất Excel</button>
+                    <div class="text-xs font-bold text-slate-500"><label class="mr-1">Điểm tính theo:</label><select class="cm-inp cursor-pointer" onchange="cmSetScoreMode(this.value)"><option value="latest" ${cmScoreMode === 'latest' ? 'selected' : ''}>Lần làm mới nhất</option><option value="best" ${cmScoreMode === 'best' ? 'selected' : ''}>Điểm cao nhất</option><option value="first" ${cmScoreMode === 'first' ? 'selected' : ''}>Lần đầu tiên</option></select> <label class="ml-2 mr-1">Hình thức:</label><select class="cm-inp cursor-pointer" onchange="cmSetModeFilter(this.value)"><option value="all" ${cmModeFilter === 'all' ? 'selected' : ''}>Tất cả (Làm bài + Live)</option><option value="exam" ${cmModeFilter === 'exam' ? 'selected' : ''}>📝 Chọn làm bài</option><option value="live" ${cmModeFilter === 'live' ? 'selected' : ''}>🎮 Chơi trực tiếp</option></select> • Bấm vào ô điểm để xem từng lần làm</div>
+                    <div class="flex gap-2 flex-wrap"><button type="button" onclick="cmSyncLatestResults(false)" class="cm-btn bg-sky-600 text-white" style="font-size:14px;padding:8px 14px">🔄 Cập nhật kết quả mới</button><button type="button" onclick="cmExportGrades()" class="cm-btn bg-emerald-600 text-white" style="font-size:14px;padding:8px 18px">⬇️ Xuất Excel</button></div>
                 </div>
                 <div class="cm-card overflow-x-auto"><table class="cm-table"><thead><tr><th class="text-center">STT</th><th>Họ và tên</th>${head}<th class="text-center">TB</th></tr></thead><tbody>${rows}${foot}</tbody></table></div>${unHtml}`;
         }
