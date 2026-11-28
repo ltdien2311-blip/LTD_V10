@@ -407,7 +407,11 @@
         } else if (t === 'tf') {
             const key = (k && k.tf) || [];
             s += '<div class="q-tf-list">';
-            (q.options || []).slice(0, 4).forEach((o, j) => {
+            const _tfOpts = (q.options || []).slice(0, 4);
+            const _hasRealTfOpt = _tfOpts.some(o => { const _t = String((o && o.text) || '').trim(); return _t && _t !== '...'; });
+            _tfOpts.forEach((o, j) => {
+                const _optTxt = String((o && o.text) || '').trim();
+                if (_hasRealTfOpt && (!_optTxt || _optTxt === '...')) return;
                 const v = a && a.values ? a.values[j] : null, set = v === true || v === false;
                 s += `<div class="q-tf-row"><div class="q-tf-text math-content"><span class="q-tf-label">${'abcd'[j]})</span> <span>${F(o.text)}</span></div><div class="q-tf-ctrl">`;
                 [true, false].forEach(bv => {
@@ -496,9 +500,15 @@
         if (t === 'tf') {
             const v = ua.values || [], key = q.tfAnswers || []; let k = 0, a = false, e = 0;
             const y = tfYPointsOf(q, LV.sc);
-            for (let j = 0; j < 4; j++) if (v[j] === true || v[j] === false) { a = true; if (v[j] === !!key[j]) { k++; if (y) e += y[j]; } }
-            if (!y) { const tr = tfTiersOf(LV.sc); e = tr ? (k ? tr[k - 1] : 0) : mx(q) * TF_LADDER[k]; }
-            return { e, ok: k === 4, a };
+            const _opts = (q.options || []).slice(0, 4);
+            const _realIdxs = _opts.map((o, idx) => { const _tx = String((o && o.text) || '').trim(); return (_tx && _tx !== '...') ? idx : -1; }).filter(idx => idx >= 0);
+            const _activeIdxs = _realIdxs.length ? _realIdxs : [0, 1, 2, 3];
+            _activeIdxs.forEach(j => { if (v[j] === true || v[j] === false) { a = true; if (v[j] === !!key[j]) { k++; if (y) e += y[j]; } } });
+            if (!y) {
+                const tr = tfTiersOf(LV.sc);
+                e = _activeIdxs.length === 4 ? (tr ? (k ? tr[k - 1] : 0) : mx(q) * TF_LADDER[k]) : (mx(q) * (k / _activeIdxs.length));
+            }
+            return { e, ok: k === _activeIdxs.length, a };
         }
         if (t === 'sa') { const a = String(ua.value || '').trim() !== ''; const ok = a && shortAnswerMatches(ua.value, q.shortAnswer); return { e: ok ? mx(q) : 0, ok, a }; }
         const a = !!ua.sel, ok = a && ua.sel === q.correct; return { e: ok ? mx(q) : 0, ok, a };

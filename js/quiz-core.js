@@ -2550,7 +2550,11 @@ const COLS = 24;
             if (p.main) html += `<div class="sol-text math-content">${formatMathAndChemHTML(remapSolutionLetters(p.main, q))}</div>`;
             if (p.t === 'tf') {
                 const key = Array.isArray(q.tfAnswers) ? q.tfAnswers : [];
-                const rows = (q.options || []).slice(0, 4).map((st, j) => {
+                const _solOpts = (q.options || []).slice(0, 4);
+                const _hasRealSolOpt = _solOpts.some(st => { const _t = String((st && st.text) || '').trim(); return _t && _t !== '...'; });
+                const rows = _solOpts.map((st, j) => {
+                    const _stTxt = String((st && st.text) || '').trim();
+                    if (_hasRealSolOpt && (!_stTxt || _stTxt === '...')) return '';
                     const ok = Boolean(key[j]);
                     const ex = p.tfs[j] ? formatMathAndChemHTML(p.tfs[j]) : '<span style="color:#94a3b8">—</span>';
                     return `<tr><td class="sol-verdict ${ok ? 't' : 'f'}">${'abcd'[j]}) ${ok ? 'Đúng' : 'Sai'}</td><td class="math-content">${ex}</td></tr>`;
@@ -2618,7 +2622,11 @@ const COLS = 24;
                 const list = document.createElement('div');
                 list.className = 'q-tf-list';
                 let okCount = 0;
-                (q.options || []).slice(0, 4).forEach((st, j) => {
+                const _tfOptsQ = (q.options || []).slice(0, 4);
+                const _hasRealTfQ = _tfOptsQ.some(st => { const _t = String((st && st.text) || '').trim(); return _t && _t !== '...'; });
+                _tfOptsQ.forEach((st, j) => {
+                    const _stTxtQ = String((st && st.text) || '').trim();
+                    if (_hasRealTfQ && (!_stTxtQ || _stTxtQ === '...')) return;
                     const row = document.createElement('div');
                     row.className = 'q-tf-row';
                     const left = document.createElement('div');

@@ -287,6 +287,8 @@
         var fs = student ? state.studentBodyFs : state.teacherBodyFs;
         var titleFs = student ? Math.round(fs * 1.23) : Math.round(fs * 1.15);
         var parentFs = student ? Math.round(fs * 1.077) : Math.round(fs * 1.075);
+        var stemFs = Math.round(fs * 0.88);
+        var OBS_LINE_COLORS = ['#67E8F9', '#FFFFFF', '#FDBA74', '#86EFAC'];
         var h = '<section class="vp-box vp-shape' + selCls + '" data-branch="' + (idx + 1) + '" style="--frame:' + FRAMES[idx] + '">';
         var btAlignVal = (!student && c.type === 'mm' && state.lineAligns[c.rowIdx]) ? state.lineAligns[c.rowIdx] : '';
         var btAlignCss = btAlignVal ? (' style="text-align:' + btAlignVal + ';text-align-last:' + (btAlignVal === 'right' ? 'right' : 'left') + '"') : '';
@@ -299,7 +301,8 @@
                 var stemCls = getTeacherLineAlignClass(c.rowIdx, idx, student);
                 var stemVal = getTeacherLineAlignVal(c.rowIdx, idx, student);
                 var stemCss = stemVal ? (';text-align:' + stemVal + ';text-align-last:' + (stemVal === 'right' ? 'right' : 'left')) : '';
-                h += '<div class="vp-line' + stemCls + '" data-depth="0" data-row="' + c.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + ';margin-bottom:0.45em' + stemCss + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix="' + escapeHtml(c.title) + '. "' : '') + '>' + renderMathText(stemTxt) + '</div>';
+                var stemColorCss = !student ? ';color:#FEF08A' : '';
+                h += '<div class="vp-line' + stemCls + '" data-depth="0" data-row="' + c.rowIdx + '" style="font-size:' + stemFs + 'px;font-weight:' + (student ? 400 : 700) + ';margin-bottom:0.45em' + stemColorCss + stemCss + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix="' + escapeHtml(c.title) + '. "' : '') + '>' + renderMathText(stemTxt) + '</div>';
             }
             c.lines.forEach(function (l, li) {
                 var r = renderInline(l.text, student, colorState, idx, li, opts);
@@ -309,13 +312,16 @@
                     var tfCls = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var tfVal = getTeacherLineAlignVal(l.rowIdx, idx, student);
                     var tfCss = tfVal ? (' style="text-align:' + tfVal + ';text-align-last:' + (tfVal === 'right' ? 'right' : 'left') + '"') : '';
+                    var optIdx = 'abcd'.indexOf(String(l.letter || '').toLowerCase());
+                    var lineColorCss = !student ? (';color:' + OBS_LINE_COLORS[(optIdx >= 0 ? optIdx : li) % OBS_LINE_COLORS.length]) : '';
                     var tfRowKey = student ? (' data-row-key="' + idx + ':' + li + ':0" data-default-one="' + (!r.hasEnd ? '1' : '0') + '"') : '';
-                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400"' + tfRowKey + '><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + tfCls + '"' + tfCss + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student, !r.hasEnd);
+                    h += '<div class="mm-tf-row" style="font-size:' + fs + 'px;font-weight:400' + lineColorCss + '"' + tfRowKey + '><span class="' + lblCls + '">' + l.letter + ')</span><span class="mm-tf-txt' + (r.hasEnd ? ' has-end-blank' : '') + tfCls + '"' + tfCss + (!student ? ' contenteditable="true" spellcheck="false" data-row="' + l.rowIdx + '" data-prefix="' + pfx + '"' : '') + '>' + r.html + '</span></div>' + renderWritingRows(idx, li, student, !r.hasEnd);
                 } else {
                     var jCls0 = getTeacherLineAlignClass(l.rowIdx, idx, student);
                     var alVal0 = getTeacherLineAlignVal(l.rowIdx, idx, student);
                     var alCss0 = alVal0 ? (';text-align:' + alVal0 + ';text-align-last:' + (alVal0 === 'right' ? 'right' : 'left')) : '';
-                    h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jCls0 + '" data-depth="0" data-row="' + l.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + alCss0 + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
+                    var lineColorCss0 = !student ? (';color:' + OBS_LINE_COLORS[li % OBS_LINE_COLORS.length]) : '';
+                    h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jCls0 + '" data-depth="0" data-row="' + l.rowIdx + '" style="font-size:' + parentFs + 'px;font-weight:' + (student ? 400 : 700) + lineColorCss0 + alCss0 + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
                 }
             });
         } else {
@@ -327,7 +333,8 @@
                 var alValN = getTeacherLineAlignVal(l.rowIdx, idx, student);
                 var plN = (alValN === 'right') ? 0 : (l.depth * 1.1);
                 var alCssN = alValN ? (';text-align:' + alValN + ';text-align-last:' + (alValN === 'right' ? 'right' : 'left')) : '';
-                h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="padding-left:' + plN + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + alCssN + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
+                var lineColorCssN = !student ? (';color:' + OBS_LINE_COLORS[li % OBS_LINE_COLORS.length]) : '';
+                h += '<div class="vp-line' + (r.hasEnd ? ' has-end-blank' : '') + jClsN + '" data-depth="' + l.depth + '" data-row="' + l.rowIdx + '" style="padding-left:' + plN + 'em;font-size:' + lineFs + 'px;font-weight:' + lineFw + lineColorCssN + alCssN + '"' + (!student ? ' contenteditable="true" spellcheck="false" data-prefix=""' : '') + '>' + r.html + '</div>' + renderWritingRows(idx, li, student);
             });
         }
         h += '</div>';
