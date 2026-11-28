@@ -2479,8 +2479,6 @@
 
         if (teacherReady()) {
             h += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' +
-                '<button type="button" onclick="CloudSync.pushLibraryToDriveGas()" style="' + btn('linear-gradient(90deg,#0284c7,#2563eb)') + '">☁️ Đẩy Thư viện &amp; MinMap lên Drive</button>' +
-                '<button type="button" onclick="CloudSync.pullLibraryFromDriveGas()" style="' + btn('linear-gradient(90deg,#059669,#0d9488)') + '">⬇️ Kéo Thư viện &amp; MinMap từ Drive</button>' +
                 '<button type="button" onclick="CloudSync.migrateDriveTo3ZonesGas()" style="' + btn('linear-gradient(90deg,#7c3aed,#4f46e5)') + '">🗂️ Quy hoạch Drive 3 vùng</button>' +
                 '<button type="button" onclick="CloudSync.testGasConnection()" style="' + btn('#0f766e') + '">🔌 Kiểm tra kết nối</button>' +
                 '<button type="button" onclick="CloudSync.syncNow()" style="' + btn('#4f46e5') + '">🔄 Đồng bộ Live</button>' +

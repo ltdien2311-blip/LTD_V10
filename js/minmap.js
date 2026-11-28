@@ -2108,6 +2108,49 @@
             populateDestPickers();
             syncSaveButtonsUi();
         }
+        function hideLegacyImagePreview() {
+            var box = $('#mm-legacy-img-preview');
+            if (box) box.style.display = 'none';
+            var vp = $('.vp-viewport');
+            if (vp) vp.style.display = '';
+        }
+        function showLegacyImagePreview(sl, sIdx) {
+            if (!sl || !sl.id) return;
+            var scrollWrap = $('.vp-canvas-scroll');
+            var vp = $('.vp-viewport');
+            if (!scrollWrap) return;
+            var box = $('#mm-legacy-img-preview');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'mm-legacy-img-preview';
+                box.style.cssText = 'display:none;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:12px;box-sizing:border-box;background:#0b1220;gap:10px;';
+                box.innerHTML = '<div style="display:flex;align-items:center;gap:10px;width:100%;max-width:960px;justify-content:space-between;background:#1e293b;border:1px solid #334155;border-radius:10px;padding:8px 12px;color:#e2e8f0;font-size:12px;font-weight:700;">' +
+                    '<span id="mm-legacy-img-caption">🖼️ Ảnh khôi phục (chỉ xem / xuất PDF)</span>' +
+                    '<button type="button" id="mm-legacy-img-close" class="vp-btn-sm">✕ Đóng xem ảnh</button></div>' +
+                    '<img id="mm-legacy-img-el" alt="Ảnh khôi phục" style="max-width:100%;max-height:calc(100% - 54px);object-fit:contain;border-radius:10px;box-shadow:0 12px 36px rgba(0,0,0,.55);background:#fff;">';
+                scrollWrap.appendChild(box);
+                var clsBtn = $('#mm-legacy-img-close');
+                if (clsBtn) clsBtn.addEventListener('click', hideLegacyImagePreview);
+            }
+            var applyUrl = function (u) {
+                if (!u) {
+                    hideLegacyImagePreview();
+                    showToast('Không tìm thấy ảnh trang #' + ((sIdx || 0) + 1) + ' trong bộ nhớ.', 'warning');
+                    return;
+                }
+                if (vp) vp.style.display = 'none';
+                box.style.display = 'flex';
+                var imgEl = $('#mm-legacy-img-el');
+                if (imgEl) imgEl.src = u;
+                var cap = $('#mm-legacy-img-caption');
+                if (cap) cap.textContent = '🖼️ Trang #' + ((sIdx || 0) + 1) + ' — ' + (sl.title || 'Ảnh khôi phục') + ' (không có Markdown gốc)';
+            };
+            if (_memSlideMap[sl.id]) {
+                applyUrl(_memSlideMap[sl.id]);
+            } else {
+                getSlideDataUrl(sl.id).then(applyUrl);
+            }
+        }
         function saveCurrentSlideToObsDeck(forceNew) {
             var gvStage = $('#mm-stage-teacher');
             var hsStage = $('#mm-stage-student');
@@ -2951,16 +2994,22 @@
                 if (sl) {
                     _editingSlideIdx = sIdx;
                     if (sl.markdown) {
+                        hideLegacyImagePreview();
                         var ed = $('#markdown-editor');
                         if (ed) {
                             ed.value = String(sl.markdown);
                             try { ed.dispatchEvent(new Event('input', { bubbles: true })); } catch (err) {}
                         }
+                        if (sl.settings) applyPageSettings(sl.settings);
+                        renderAll();
+                        renderDeckDrawer();
+                        showToast('Đang sửa trang #' + (sIdx + 1) + ': "' + (sl.title || 'Trang') + '" (đã giữ 100% thiết lập)', 'info');
+                    } else {
+                        if (sl.settings) applyPageSettings(sl.settings);
+                        renderAll();
+                        renderDeckDrawer();
+                        showLegacyImagePreview(sl, sIdx);
                     }
-                    if (sl.settings) applyPageSettings(sl.settings);
-                    renderAll();
-                    renderDeckDrawer();
-                    showToast('Đang sửa trang #' + (sIdx + 1) + ': "' + (sl.title || 'Trang') + '" (đã giữ 100% thiết lập)', 'info');
                 }
                 return;
             }
