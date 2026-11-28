@@ -287,7 +287,7 @@
         var fs = student ? state.studentBodyFs : state.teacherBodyFs;
         var titleFs = student ? Math.round(fs * 1.23) : Math.round(fs * 1.15);
         var parentFs = student ? Math.round(fs * 1.077) : Math.round(fs * 1.075);
-        var stemFs = Math.round(fs * 0.88);
+        var stemFs = student ? fs : Math.round(fs * 0.88);
         var OBS_LINE_COLORS = ['#67E8F9', '#FFFFFF', '#FDBA74', '#86EFAC'];
         var h = '<section class="vp-box vp-shape' + selCls + '" data-branch="' + (idx + 1) + '" style="--frame:' + FRAMES[idx] + '">';
         var btAlignVal = (!student && c.type === 'mm' && state.lineAligns[c.rowIdx]) ? state.lineAligns[c.rowIdx] : '';
