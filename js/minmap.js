@@ -2769,34 +2769,55 @@
             }
             return String(n || '').trim().toLowerCase().replace(/\s+/g, ' ');
         }
-        function mergePulledDecksIntoLocal(pulledDecks) {
-            var list = Array.isArray(loadDecksMeta()) ? loadDecksMeta().slice() : [];
-            var firstActiveId = '';
-            (pulledDecks || []).forEach(function (pk) {
-                if (!pk) return;
-                var pkNorm = normDeckTitle(pk.name);
-                var idx = -1;
-                for (var i = 0; i < list.length; i++) {
-                    if (normDeckTitle(list[i].name) === pkNorm) { idx = i; break; }
-                }
-                if (idx >= 0) {
-                    list[idx] = pk;
-                } else {
-                    list.push(pk);
-                }
-                if (!firstActiveId) firstActiveId = pk.id;
-            });
-            _deckState.decks = list;
-            if (firstActiveId) _deckState.activeId = firstActiveId;
-            _editingSlideIdx = -1;
-            (pulledDecks || []).forEach(function (pk) {
-                if (!pk) return;
-                var oldDk = list.find(function (x) { return x && x.id === pk.id; });
-                if (oldDk) {
-                    (oldDk.slides || []).concat(oldDk.hsSlides || []).forEach(function (s) {
-                        if (s && s.id) delete _memSlideMap[s.id];
+        function mergePulledDecksIntoLocal(pulledDecks, opts) {
+            if (!Array.isArray(pulledDecks) || !pulledDecks.length) return;
+            var replaceOnly = !!(opts && opts.replaceOnly);
+            var pulledIds = {};
+            if (replaceOnly) {
+                _deckState.decks = [];
+                _memSlideMap = {};
+            } else {
+                _deckState.decks = (_deckState.decks || []).filter(function (d) {
+                    if (!d) return false;
+                    var gvLen = Array.isArray(d.slides) ? d.slides.length : 0;
+                    var hsLen = Array.isArray(d.hsSlides) ? d.hsSlides.length : 0;
+                    return gvLen > 0 || hsLen > 0;
+                });
+            }
+            pulledDecks.forEach(function (dk) {
+                if (!dk || !dk.id) return;
+                pulledIds[String(dk.id)] = true;
+                var nName = normDeckTitle(dk.name || 'Bài giảng');
+                var oldList = [];
+                _deckState.decks = _deckState.decks.filter(function (ex) {
+                    if (ex && (String(ex.id) === String(dk.id) || normDeckTitle(ex.name) === nName)) {
+                        oldList.push(ex);
+                        return false;
+                    }
+                    return true;
+                });
+                var newSlides = Array.isArray(dk.slides) ? dk.slides : [];
+                var newHsSlides = Array.isArray(dk.hsSlides) ? dk.hsSlides : [];
+                var keepIds = {};
+                newSlides.concat(newHsSlides).forEach(function (s) { if (s && s.id) keepIds[s.id] = true; });
+                oldList.forEach(function (oldDk) {
+                    (oldDk.slides || []).concat(oldDk.hsSlides || []).forEach(function (os) {
+                        if (os && os.id && !keepIds[os.id]) {
+                            delete _memSlideMap[os.id];
+                            deleteSlideDataUrl(os.id);
+                        }
                     });
-                }
+                });
+                _deckState.decks.push({
+                    id: String(dk.id),
+                    name: String(dk.name || 'Bài giảng'),
+                    grade: String(dk.grade || ''),
+                    minMapMarkdown: String(dk.minMapMarkdown || ''),
+                    updatedAt: Number(dk.updatedAt || Date.now()),
+                    slides: newSlides,
+                    hsSlides: newHsSlides
+                });
+                _deckState.activeId = String(dk.id);
             });
             saveDecksMeta();
             renderDeckDrawer();
@@ -2833,7 +2854,7 @@
                 '<div style="font-size:12px;color:#cbd5e1;">Tick chọn bài giảng cần kéo về soạn tiếp. Các bài giảng tên khác đang soạn trên máy được giữ nguyên 100%.</div>' +
                 '<div style="display:flex;gap:8px;"><button type="button" id="mm-pull-sel-all" class="vp-btn-sm">✓ Chọn tất cả</button><button type="button" id="mm-pull-sel-none" class="vp-btn-sm">Bỏ chọn</button></div>' +
                 '<div id="mm-pull-list" style="display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:48vh;padding-right:4px;">' + rowsHtml + '</div>' +
-                '<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;margin-top:4px;">' +
+                '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#fbbf24;font-weight:700;cursor:pointer;padding:6px 8px;border-radius:8px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);"><input type="checkbox" id="mm-pull-replace-only" style="width:15px;height:15px;"> Chỉ giữ bài được chọn (dọn sạch các bài cũ khác trên máy)</label><div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;margin-top:4px;">' +
                 '<button type="button" id="mm-pull-del-selected" class="vp-btn-sm" style="background:#991b1b;border-color:#ef4444;color:#fee2e2;margin-right:auto;">🗑 Xóa mục đã chọn trên Drive</button>' +
                 '<button type="button" id="mm-pull-cancel" class="vp-btn-sm">Hủy</button>' +
                 '<button type="button" id="mm-pull-confirm" class="vp-btn-sm accent">⬇️ Kéo bài đã chọn</button></div></div>';
@@ -2907,7 +2928,7 @@
                     if (stEl && p) stEl.textContent = '⏳ Đang tải ảnh: ' + (p.done || 0) + '/' + (p.total || 0) + '...';
                 }, selectedIds).then(function (r) {
                     if (r && r.ok && r.data && Array.isArray(r.data.decks) && r.data.decks.length) {
-                        mergePulledDecksIntoLocal(r.data.decks);
+                        var repChk = dlg.querySelector('#mm-pull-replace-only'); mergePulledDecksIntoLocal(r.data.decks, { replaceOnly: !!(repChk && repChk.checked) });
                         if (stEl) { stEl.style.color = '#6ee7b7'; stEl.textContent = '✅ Đã kéo ' + (r.deckCount || 0) + ' bài & ' + (r.imageCount || 0) + ' ảnh về máy!'; }
                         showToast('Đã kéo bài giảng về soạn tiếp!', 'success');
                     } else {
